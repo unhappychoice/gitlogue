@@ -1,4 +1,5 @@
 use crate::git::{CommitMetadata, DiffHunk, FileChange, LineChangeType};
+use rand::Rng;
 use std::time::{Duration, Instant};
 
 /// Represents the current state of the editor buffer
@@ -124,6 +125,7 @@ pub struct AnimationEngine {
     current_step: usize,
     last_update: Instant,
     speed_ms: u64,
+    next_step_delay: u64,
     pause_until: Option<Instant>,
     pub cursor_visible: bool,
     cursor_blink_timer: Instant,
@@ -142,6 +144,7 @@ impl AnimationEngine {
             current_step: 0,
             last_update: Instant::now(),
             speed_ms,
+            next_step_delay: speed_ms,
             pause_until: None,
             cursor_visible: true,
             cursor_blink_timer: Instant::now(),
@@ -376,7 +379,7 @@ impl AnimationEngine {
         }
 
         // Check if it's time for next step
-        if self.last_update.elapsed() < Duration::from_millis(self.speed_ms) {
+        if self.last_update.elapsed() < Duration::from_millis(self.next_step_delay) {
             return false;
         }
 
@@ -395,6 +398,20 @@ impl AnimationEngine {
     }
 
     fn execute_step(&mut self, step: AnimationStep) {
+        // Calculate delay for next step with randomization for typing steps
+        let mut rng = rand::thread_rng();
+        self.next_step_delay = match &step {
+            AnimationStep::InsertChar { .. } | AnimationStep::TerminalTypeChar { .. } => {
+                // Add 70-130% variation to typing speed
+                let variation = rng.gen_range(0.7..=1.3);
+                ((self.speed_ms as f64) * variation) as u64
+            }
+            _ => {
+                // Other steps use base speed
+                self.speed_ms
+            }
+        };
+
         match step {
             AnimationStep::InsertChar { line, col, ch } => {
                 self.active_pane = ActivePane::Editor;
