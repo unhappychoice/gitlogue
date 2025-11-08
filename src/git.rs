@@ -75,6 +75,8 @@ pub struct FileChange {
     pub old_path: Option<String>,
     pub status: FileStatus,
     pub is_binary: bool,
+    pub old_content: Option<String>,
+    pub new_content: Option<String>,
     pub hunks: Vec<DiffHunk>,
     pub diff: String,
 }
@@ -195,6 +197,42 @@ impl GitRepository {
 
             let is_binary = delta.new_file().is_binary() || delta.old_file().is_binary();
 
+            let old_content = if let Some(parent_tree) = parent_tree.as_ref() {
+                if let Some(old_file_path) = delta.old_file().path() {
+                    parent_tree
+                        .get_path(old_file_path)
+                        .ok()
+                        .and_then(|entry| repo.find_blob(entry.id()).ok())
+                        .and_then(|blob| {
+                            if !blob.is_binary() {
+                                Some(String::from_utf8_lossy(blob.content()).to_string())
+                            } else {
+                                None
+                            }
+                        })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let new_content = if let Some(new_file_path) = delta.new_file().path() {
+                commit_tree
+                    .get_path(new_file_path)
+                    .ok()
+                    .and_then(|entry| repo.find_blob(entry.id()).ok())
+                    .and_then(|blob| {
+                        if !blob.is_binary() {
+                            Some(String::from_utf8_lossy(blob.content()).to_string())
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
+            };
+
             let mut hunks = Vec::new();
             let mut diff_text = String::new();
 
@@ -263,6 +301,8 @@ impl GitRepository {
                 old_path,
                 status,
                 is_binary,
+                old_content,
+                new_content,
                 hunks,
                 diff: diff_text,
             });

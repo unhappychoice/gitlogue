@@ -109,6 +109,30 @@ fn print_commit_info(metadata: &git::CommitMetadata) {
 
     if !metadata.changes.is_empty() {
         println!();
+        println!("  File contents:");
+        for change in &metadata.changes {
+            println!("    File: {}", change.path);
+            if change.is_binary {
+                println!("      (binary file)");
+                continue;
+            }
+
+            if let Some(old) = &change.old_content {
+                let lines = old.lines().count();
+                println!("      Old content: {} lines", lines);
+            } else {
+                println!("      Old content: (none - new file)");
+            }
+
+            if let Some(new) = &change.new_content {
+                let lines = new.lines().count();
+                println!("      New content: {} lines", lines);
+            } else {
+                println!("      New content: (none - deleted file)");
+            }
+        }
+
+        println!();
         println!("  Structured changes:");
         for change in &metadata.changes {
             println!("    File: {}", change.path);
