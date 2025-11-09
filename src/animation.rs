@@ -1,5 +1,7 @@
 use crate::git::{CommitMetadata, DiffHunk, FileChange, LineChangeType};
+use crate::syntax::Highlighter;
 use rand::Rng;
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 // Duration multipliers relative to typing speed
@@ -32,6 +34,11 @@ pub struct EditorBuffer {
     pub cursor_line: usize,
     pub cursor_col: usize,
     pub scroll_offset: usize,
+    pub cached_highlights: Vec<crate::syntax::HighlightSpan>,
+    /// Track which line is being edited and its byte offset change since last highlight update
+    pub editing_line: Option<usize>,
+    pub editing_insert_byte_position: usize, // Byte position within line where insertion started
+    pub editing_line_byte_offset: isize, // Cumulative byte offset from insertion start
 }
 
 impl EditorBuffer {
@@ -41,6 +48,10 @@ impl EditorBuffer {
             cursor_line: 0,
             cursor_col: 0,
             scroll_offset: 0,
+            cached_highlights: Vec::new(),
+            editing_line: None,
+            editing_insert_byte_position: 0,
+            editing_line_byte_offset: 0,
         }
     }
 
@@ -56,6 +67,10 @@ impl EditorBuffer {
             cursor_line: 0,
             cursor_col: 0,
             scroll_offset: 0,
+            cached_highlights: Vec::new(),
+            editing_line: None,
+            editing_insert_byte_position: 0,
+            editing_line_byte_offset: 0,
         }
     }
 
@@ -100,7 +115,8 @@ pub enum AnimationStep {
     DeleteLine { line: usize },
     MoveCursor { line: usize, col: usize },
     Pause { duration_ms: u64 },
-    SwitchFile { file_index: usize, content: String },
+    SwitchFile { file_index: usize, content: String, path: String },
+    UpdateHighlights,
     TerminalPrompt,
     TerminalTypeChar { ch: char },
     TerminalOutput { text: String },
@@ -135,8 +151,10 @@ pub struct AnimationEngine {
     cursor_blink_timer: Instant,
     viewport_height: usize,
     pub current_file_index: usize,
+    pub current_file_path: Option<String>,
     pub terminal_lines: Vec<String>,
     pub active_pane: ActivePane,
+    pub highlighter: RefCell<Highlighter>,
 }
 
 impl AnimationEngine {
@@ -154,13 +172,21 @@ impl AnimationEngine {
             cursor_blink_timer: Instant::now(),
             viewport_height: 20, // Default, will be updated from UI
             current_file_index: 0,
+            current_file_path: None,
             terminal_lines: Vec::new(),
             active_pane: ActivePane::Terminal, // Start with terminal (git checkout)
+            highlighter: RefCell::new(Highlighter::new()),
         }
     }
 
     pub fn set_viewport_height(&mut self, height: usize) {
         self.viewport_height = height;
+    }
+
+    /// Update syntax highlighting for current buffer
+    fn update_buffer_highlights(&mut self) {
+        let full_content = self.buffer.lines.join("\n");
+        self.buffer.cached_highlights = self.highlighter.borrow_mut().highlight(&full_content);
     }
 
     /// Add a terminal command with typing animation
@@ -218,7 +244,11 @@ impl AnimationEngine {
             self.steps.push(AnimationStep::SwitchFile {
                 file_index: index,
                 content: content.clone(),
+                path: change.path.clone(),
             });
+
+            // Update highlights for the new file
+            self.steps.push(AnimationStep::UpdateHighlights);
 
             // Add pause before starting file animation
             self.steps.push(AnimationStep::Pause { duration_ms: (self.speed_ms as f64 * FILE_SWITCH_PAUSE) as u64 });
@@ -374,6 +404,8 @@ impl AnimationEngine {
                     self.steps.push(AnimationStep::DeleteLine {
                         line: buffer_line,
                     });
+                    // Update highlights after line deletion
+                    self.steps.push(AnimationStep::UpdateHighlights);
                     self.steps.push(AnimationStep::Pause { duration_ms: (self.speed_ms as f64 * DELETE_LINE_PAUSE) as u64 });
                     cursor_line = buffer_line;
                     // After deletion, buffer_line stays the same
@@ -385,6 +417,10 @@ impl AnimationEngine {
                         line: buffer_line,
                         content: String::new(),
                     });
+
+                    // Update highlights immediately after inserting empty line
+                    // This ensures highlights for lines below are shifted correctly
+                    self.steps.push(AnimationStep::UpdateHighlights);
 
                     // Type each character
                     let mut col = 0;
@@ -399,6 +435,9 @@ impl AnimationEngine {
 
                     cursor_line = buffer_line;
                     buffer_line += 1; // Move to next line after insertion
+
+                    // Update highlights again after line is completely typed
+                    self.steps.push(AnimationStep::UpdateHighlights);
                     self.steps.push(AnimationStep::Pause { duration_ms: (self.speed_ms as f64 * INSERT_LINE_PAUSE) as u64 });
                 }
                 LineChangeType::Context => {
@@ -476,15 +515,34 @@ impl AnimationEngine {
         match step {
             AnimationStep::InsertChar { line, col, ch } => {
                 self.active_pane = ActivePane::Editor;
+
+                // Calculate byte position before insertion
+                if self.buffer.editing_line != Some(line) {
+                    // Starting edit on new line - calculate insertion byte position
+                    let line_str = &self.buffer.lines[line];
+                    let byte_pos = line_str.chars().take(col).map(|c| c.len_utf8()).sum();
+                    self.buffer.editing_line = Some(line);
+                    self.buffer.editing_insert_byte_position = byte_pos;
+                    self.buffer.editing_line_byte_offset = 0;
+                }
+
                 self.buffer.insert_char(line, col, ch);
                 self.buffer.cursor_line = line;
                 self.buffer.cursor_col = col + 1;
+
+                // Track editing offset for highlight adjustment
+                self.buffer.editing_line_byte_offset += ch.len_utf8() as isize;
             }
             AnimationStep::InsertLine { line, content } => {
                 self.active_pane = ActivePane::Editor;
                 self.buffer.insert_line(line, content);
                 self.buffer.cursor_line = line;
                 self.buffer.cursor_col = 0;
+
+                // Reset editing offset for new line (insertion starts at position 0)
+                self.buffer.editing_line = Some(line);
+                self.buffer.editing_insert_byte_position = 0;
+                self.buffer.editing_line_byte_offset = 0;
             }
             AnimationStep::DeleteLine { line } => {
                 self.active_pane = ActivePane::Editor;
@@ -503,11 +561,25 @@ impl AnimationEngine {
             AnimationStep::SwitchFile {
                 file_index,
                 content,
+                path,
             } => {
                 self.active_pane = ActivePane::Editor;
                 // Switch to new file
                 self.current_file_index = file_index;
+                self.current_file_path = Some(path.clone());
                 self.buffer = EditorBuffer::from_content(&content);
+
+                // Update syntax highlighter for new file
+                // This will clear language settings if not supported
+                self.highlighter.borrow_mut().set_language_from_path(&path);
+            }
+            AnimationStep::UpdateHighlights => {
+                self.active_pane = ActivePane::Editor;
+                self.update_buffer_highlights();
+                // Reset editing offset after highlight update
+                self.buffer.editing_line = None;
+                self.buffer.editing_insert_byte_position = 0;
+                self.buffer.editing_line_byte_offset = 0;
             }
             AnimationStep::TerminalPrompt => {
                 self.active_pane = ActivePane::Terminal;
