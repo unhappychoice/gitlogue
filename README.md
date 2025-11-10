@@ -1,8 +1,69 @@
 # gitlogue
 
-A beautiful Git commit history screensaver that brings your past development sessions back to life.
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="gitlogue demo" width="800" />
+</p>
 
-Watch your code being typed out again with syntax highlighting, just like you wrote it the first time.
+A terminal-based Git commit diff animator that brings your code changes to life.
+
+Watch commits replay with realistic typing animations, syntax highlighting, and file tree views - transforming Git history into a cinematic coding experience.
+
+## Installation
+
+### Using Cargo
+
+```bash
+cargo install gitlogue
+```
+
+### From Source
+
+```bash
+git clone https://github.com/unhappychoice/gitlogue.git
+cd gitlogue
+cargo install --path .
+```
+
+See the [Installation Guide](docs/installation.md) for more options and troubleshooting.
+
+## Usage
+
+### Popular Use Cases
+
+- 🖥️  **Screensaver** - Ambient coding display for your workspace
+- 🎓 **Education** - Show how code evolved over time
+- 📺 **Presentations** - Live code history replay
+- 🎬 **Content Creation** - Record demos with VHS or asciinema
+- 🎨 **Desktop Ricing** - Perfect for tiling window manager setups
+- 💼 **Look Busy** - Appear productive during meetings (we don't judge!)
+
+### Quick Start
+
+```bash
+# Screensaver mode - random commits
+gitlogue
+
+# View a specific commit
+gitlogue --commit abc123
+
+# Use a different theme
+gitlogue --theme dracula
+
+# Adjust typing speed (ms per character)
+gitlogue --speed 20
+
+# List available themes
+gitlogue theme list
+
+# Combine options
+gitlogue --commit HEAD~5 --theme nord --speed 15
+```
+
+### Controls
+
+- `Esc` or `Ctrl+C` - Quit the application
+
+See the [Usage Guide](docs/usage.md) for detailed examples and advanced features.
 
 ## Features
 
@@ -18,121 +79,19 @@ Watch your code being typed out again with syntax highlighting, just like you wr
 
 Rust, TypeScript, JavaScript, Python, Go, Ruby, Swift, Kotlin, Java, PHP, C#, C, C++, Haskell, Dart, Scala, Clojure, Zig, Elixir, Erlang, HTML, CSS, JSON, Markdown, YAML, XML
 
-## Installation
+## Documentation
 
-### From Source
-
-```bash
-git clone https://github.com/unhappychoice/gitlogue.git
-cd gitlogue
-cargo install --path .
-```
-
-### Using Cargo
-
-```bash
-cargo install gitlogue
-```
-
-## Usage
-
-### Screensaver Mode (Random Commits)
-
-Navigate to a Git repository and run:
-
-```bash
-gitlogue
-```
-
-This will randomly select commits and replay them with animations.
-
-### View a Specific Commit
-
-```bash
-gitlogue --commit <commit-hash>
-```
-
-### Options
-
-- `--commit <hash>` - Display a specific commit instead of random playback
-- `--theme <name>` - Select a theme (e.g., dracula, nord, monokai)
-- `--speed <ms>` - Set typing speed in milliseconds per character (default: 30)
-- `--help` - Show help information
-
-### Commands
-
-- `theme list` - List all available themes
-
-### Themes
-
-gitlogue supports multiple themes. Use `theme list` subcommand to see all available options:
-
-```bash
-gitlogue theme list
-```
-
-Select a theme with the `--theme` option:
-
-```bash
-gitlogue --theme dracula
-gitlogue --theme nord
-gitlogue --theme solarized-light
-```
-
-You can also set a default theme in `~/.config/gitlogue/config.toml`:
-
-```toml
-theme = "dracula"
-```
-
-See [docs/themes.md](docs/themes.md) for more information about themes and customization.
-
-### Controls
-
-- `Esc` or `Ctrl+C` - Quit the application
-
-## How It Works
-
-gitlogue reads your Git repository history and recreates the development experience:
-
-1. Selects commits from your repository (randomly or specified)
-2. Analyzes file changes and diffs
-3. Uses tree-sitter for syntax highlighting
-4. Animates the typing of code changes line by line
-5. Displays file trees, metadata, and commit information
-
-## Development
-
-### Requirements
-
-- Rust 1.70 or later
-- Git
-
-### Building
-
-```bash
-cargo build --release
-```
-
-### Running Tests
-
-```bash
-cargo test
-```
-
-### Running Examples
-
-```bash
-cargo run --example test_highlighter
-```
-
-## Roadmap
-
-See the [v0.1.0 Milestone](https://github.com/unhappychoice/gitlogue/milestone/1) for planned features.
+- [Installation Guide](docs/installation.md) - Detailed installation instructions for different platforms
+- [Usage Guide](docs/usage.md) - Comprehensive usage examples and CLI options
+- [Theme Customization](docs/themes.md) - Theme configuration and customization
+- [Contributing Guidelines](docs/CONTRIBUTING.md) - How to contribute to the project
+- [Architecture Overview](docs/ARCHITECTURE.md) - Technical architecture and design decisions
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please read our [Contributing Guidelines](docs/CONTRIBUTING.md) for details on how to get started.
+
+See the [v0.1.0 Milestone](https://github.com/unhappychoice/gitlogue/milestone/1) for planned features.
 
 ## License
 
