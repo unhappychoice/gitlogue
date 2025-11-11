@@ -220,7 +220,7 @@ impl<'a> UI<'a> {
 
         // Update file tree data if needed
         if let Some(metadata) = self.engine.current_metadata() {
-            let content_width = left_layout[0].width.saturating_sub(4) as usize;
+            let content_width = left_layout[0].width as usize;
             self.file_tree.set_commit_metadata(
                 metadata,
                 self.engine.current_file_index,

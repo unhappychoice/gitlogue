@@ -66,8 +66,8 @@ impl FileTreePane {
         let block = Block::default()
             .style(Style::default().bg(theme.background_left))
             .padding(Padding {
-                left: 2,
-                right: 2,
+                left: 0,
+                right: 0,
                 top: 1,
                 bottom: 1,
             });
@@ -189,13 +189,32 @@ impl FileTreePane {
             // Add directory header if not root
             if !dir.is_empty() {
                 let dir_text = format!("{}/", dir);
-                lines.push(Line::from(vec![Span::styled(
-                    dir_text.clone(),
-                    Style::default()
-                        .fg(theme.file_tree_directory)
-                        .add_modifier(Modifier::BOLD),
-                )]));
-                display_line_count += Self::calculate_wrapped_lines(dir_text.width(), area_width);
+                let dir_content_width = 2 + dir_text.width(); // left padding + text
+
+                let mut dir_spans = vec![
+                    Span::styled(
+                        "  ", // left padding
+                        Style::default().bg(theme.background_left),
+                    ),
+                    Span::styled(
+                        dir_text.clone(),
+                        Style::default()
+                            .fg(theme.file_tree_directory)
+                            .bg(theme.background_left)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ];
+
+                // Fill to right edge with background color
+                if dir_content_width < area_width {
+                    dir_spans.push(Span::styled(
+                        " ".repeat(area_width - dir_content_width),
+                        Style::default().bg(theme.background_left),
+                    ));
+                }
+
+                lines.push(Line::from(dir_spans));
+                display_line_count += Self::calculate_wrapped_lines(dir_content_width, area_width);
             }
 
             // Add files
@@ -212,13 +231,19 @@ impl FileTreePane {
                 let stats_str = format!(" +{} -{}", additions, deletions);
 
                 // Calculate actual line width for wrapping (use display width for wide characters)
-                let line_width =
-                    indent.width() + status_str.width() + filename.width() + stats_str.width();
+                // Include left padding (2) in the width calculation
+                let content_width =
+                    2 + indent.width() + status_str.width() + filename.width() + stats_str.width();
 
                 let mut spans = vec![];
 
                 if is_current {
                     // Current file - apply background to entire line
+                    // Add left padding
+                    spans.push(Span::styled(
+                        "  ",
+                        Style::default().bg(theme.file_tree_current_file_bg),
+                    ));
                     spans.push(Span::styled(
                         indent.clone(),
                         Style::default().bg(theme.file_tree_current_file_bg),
@@ -250,35 +275,60 @@ impl FileTreePane {
                             .bg(theme.file_tree_current_file_bg),
                     ));
 
-                    // Calculate line length and fill to right edge
-                    if line_width < area_width {
+                    // Fill to right edge with background color
+                    if content_width < area_width {
                         spans.push(Span::styled(
-                            " ".repeat(area_width - line_width),
+                            " ".repeat(area_width - content_width),
                             Style::default().bg(theme.file_tree_current_file_bg),
                         ));
                     }
                 } else {
                     // Normal file
-                    spans.push(Span::raw(indent));
+                    // Add left padding
+                    spans.push(Span::styled(
+                        "  ",
+                        Style::default().bg(theme.background_left),
+                    ));
+                    spans.push(Span::styled(
+                        indent,
+                        Style::default().bg(theme.background_left),
+                    ));
                     spans.push(Span::styled(
                         status_str,
-                        Style::default().fg(*color).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(*color)
+                            .bg(theme.background_left)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::styled(
                         filename.clone(),
-                        Style::default().fg(theme.file_tree_default),
+                        Style::default()
+                            .fg(theme.file_tree_default)
+                            .bg(theme.background_left),
                     ));
                     spans.push(Span::styled(
                         format!(" +{}", additions),
-                        Style::default().fg(theme.file_tree_stats_added),
+                        Style::default()
+                            .fg(theme.file_tree_stats_added)
+                            .bg(theme.background_left),
                     ));
                     spans.push(Span::styled(
                         format!(" -{}", deletions),
-                        Style::default().fg(theme.file_tree_stats_deleted),
+                        Style::default()
+                            .fg(theme.file_tree_stats_deleted)
+                            .bg(theme.background_left),
                     ));
+
+                    // Fill to right edge with background color
+                    if content_width < area_width {
+                        spans.push(Span::styled(
+                            " ".repeat(area_width - content_width),
+                            Style::default().bg(theme.background_left),
+                        ));
+                    }
                 }
 
-                display_line_count += Self::calculate_wrapped_lines(line_width, area_width);
+                display_line_count += Self::calculate_wrapped_lines(content_width, area_width);
 
                 lines.push(Line::from(spans));
             }
