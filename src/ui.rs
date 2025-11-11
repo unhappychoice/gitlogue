@@ -21,6 +21,7 @@ use crate::animation::AnimationEngine;
 use crate::git::{CommitMetadata, GitRepository};
 use crate::panes::{EditorPane, FileTreePane, StatusBarPane, TerminalPane};
 use crate::theme::Theme;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq)]
 enum UIState {
@@ -55,7 +56,7 @@ impl<'a> UI<'a> {
         Self {
             state: UIState::Playing,
             speed_ms,
-            file_tree: FileTreePane,
+            file_tree: FileTreePane::new(),
             editor: EditorPane,
             terminal: TerminalPane,
             status_bar: StatusBarPane,
@@ -110,11 +111,14 @@ impl<'a> UI<'a> {
                 self.state = UIState::Finished;
             }
 
-            // Update viewport height for scroll calculation
+            // Update viewport dimensions for scroll calculation
             let size = terminal.size()?;
             // Editor area: 70% (right column) × 80% (editor pane) = 56% of total height
             let viewport_height = (size.height as f32 * 0.70 * 0.80) as usize;
+            // Editor width: 70% (right column)
+            let content_width = (size.width as f32 * 0.70) as usize;
             self.engine.set_viewport_height(viewport_height);
+            self.engine.set_content_width(content_width);
 
             // Tick the animation engine
             let needs_redraw = self.engine.tick();
@@ -174,7 +178,7 @@ impl<'a> UI<'a> {
         Ok(())
     }
 
-    fn render(&self, f: &mut Frame) {
+    fn render(&mut self, f: &mut Frame) {
         let size = f.area();
 
         // Split horizontally: left column | right column
@@ -214,14 +218,19 @@ impl<'a> UI<'a> {
 
         let separator_color = self.theme.separator;
 
+        // Update file tree data if needed
+        if let Some(metadata) = self.engine.current_metadata() {
+            let content_width = left_layout[0].width.saturating_sub(4) as usize;
+            self.file_tree.set_commit_metadata(
+                metadata,
+                self.engine.current_file_index,
+                &self.theme,
+                content_width,
+            );
+        }
+
         // Render file tree
-        self.file_tree.render(
-            f,
-            left_layout[0],
-            self.engine.current_metadata(),
-            self.engine.current_file_index,
-            &self.theme,
-        );
+        self.file_tree.render(f, left_layout[0], &self.theme);
 
         // Render horizontal separator between file tree and commit info (left column)
         let left_sep = Paragraph::new(Line::from("─".repeat(left_layout[1].width as usize))).style(
@@ -259,7 +268,8 @@ impl<'a> UI<'a> {
         // Render dialog if present
         if let Some(ref title) = self.engine.dialog_title {
             let text = &self.engine.dialog_typing_text;
-            let dialog_width = (text.len() + 10).max(60).min(size.width as usize) as u16;
+            let text_display_width = text.width();
+            let dialog_width = (text_display_width + 10).max(60).min(size.width as usize) as u16;
             let dialog_height = 3;
             let dialog_x = (size.width.saturating_sub(dialog_width)) / 2;
             let dialog_y = (size.height.saturating_sub(dialog_height)) / 2;
@@ -273,8 +283,7 @@ impl<'a> UI<'a> {
 
             // Calculate content width (dialog_width - borders(2) - padding(2))
             let content_width = dialog_width.saturating_sub(4) as usize;
-            let text_len = text.len();
-            let padding_len = content_width.saturating_sub(text_len);
+            let padding_len = content_width.saturating_sub(text_display_width);
 
             let spans = vec![
                 Span::styled(
