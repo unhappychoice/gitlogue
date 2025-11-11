@@ -291,10 +291,15 @@ impl<'a> Widget for SelectableParagraph<'a> {
 
             if *is_first_wrap && !*has_wrap {
                 // No wrapping: apply both left and right padding
+                // Skip if padding would exceed available width
+                if self.padding.left + self.padding.right > inner_area.width {
+                    continue;
+                }
+
                 for x in 0..self.padding.left {
-                    buf.cell_mut((inner_area.x + x, render_y))
-                        .unwrap()
-                        .set_style(fill_style);
+                    if let Some(cell) = buf.cell_mut((inner_area.x + x, render_y)) {
+                        cell.set_style(fill_style);
+                    }
                 }
 
                 // Render content after left padding
@@ -329,26 +334,31 @@ impl<'a> Widget for SelectableParagraph<'a> {
 
                 // Fill remaining space in content area
                 for x in x_pos..no_wrap_content_width {
-                    buf.cell_mut((inner_area.x + self.padding.left + x as u16, render_y))
-                        .unwrap()
-                        .set_style(fill_style);
+                    if let Some(cell) = buf.cell_mut((inner_area.x + self.padding.left + x as u16, render_y)) {
+                        cell.set_style(fill_style);
+                    }
                 }
 
                 // Render right padding
                 for x in 0..self.padding.right {
-                    buf.cell_mut((
+                    if let Some(cell) = buf.cell_mut((
                         inner_area.x + self.padding.left + no_wrap_content_width as u16 + x,
                         render_y,
-                    ))
-                    .unwrap()
-                    .set_style(fill_style);
+                    )) {
+                        cell.set_style(fill_style);
+                    }
                 }
             } else if *is_first_wrap && *has_wrap {
                 // First line with wrapping: apply left padding only, no right padding
+                // Skip if padding would exceed available width
+                if self.padding.left > inner_area.width {
+                    continue;
+                }
+
                 for x in 0..self.padding.left {
-                    buf.cell_mut((inner_area.x + x, render_y))
-                        .unwrap()
-                        .set_style(fill_style);
+                    if let Some(cell) = buf.cell_mut((inner_area.x + x, render_y)) {
+                        cell.set_style(fill_style);
+                    }
                 }
 
                 // Render content after left padding, use remaining width
@@ -382,11 +392,11 @@ impl<'a> Widget for SelectableParagraph<'a> {
                 }
 
                 // Fill remaining space to right edge (no right padding)
-                let remaining_width = continuation_width - self.padding.left as usize;
+                let remaining_width = continuation_width.saturating_sub(self.padding.left as usize);
                 for x in x_pos..remaining_width {
-                    buf.cell_mut((inner_area.x + self.padding.left + x as u16, render_y))
-                        .unwrap()
-                        .set_style(fill_style);
+                    if let Some(cell) = buf.cell_mut((inner_area.x + self.padding.left + x as u16, render_y)) {
+                        cell.set_style(fill_style);
+                    }
                 }
             } else {
                 // Wrapped continuation line: use full width (no padding)
@@ -422,9 +432,9 @@ impl<'a> Widget for SelectableParagraph<'a> {
 
                 // Fill remaining space to full width
                 for x in x_pos..continuation_width {
-                    buf.cell_mut((inner_area.x + x as u16, render_y))
-                        .unwrap()
-                        .set_style(fill_style);
+                    if let Some(cell) = buf.cell_mut((inner_area.x + x as u16, render_y)) {
+                        cell.set_style(fill_style);
+                    }
                 }
             }
         }
