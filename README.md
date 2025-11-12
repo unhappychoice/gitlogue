@@ -10,6 +10,18 @@ Watch commits replay with realistic typing animations, syntax highlighting, and 
 
 ## Installation
 
+### Using Install Script (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/unhappychoice/gitlogue/main/install.sh | bash
+```
+
+### Using Homebrew
+
+```bash
+brew install unhappychoice/tap/gitlogue
+```
+
 ### Using Cargo
 
 ```bash
