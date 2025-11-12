@@ -17,7 +17,6 @@ exclude = [
     "examples/",
     ".github/",
     "Formula/",
-    "LICENSE-THIRD-PARTY",
     "about.toml",
     "about.hbs",
     "generate_changelog.sh",
