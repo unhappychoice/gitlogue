@@ -360,6 +360,133 @@ Then use:
 gitlogue-menu
 ```
 
+### Screensaver Integration
+
+gitlogue can be integrated with idle daemons to automatically start when your system is idle.
+
+#### Hyprland with hypridle
+
+Add to `~/.config/hypr/hypridle.conf`:
+
+```bash
+general {
+    lock_cmd = pidof gitlogue || alacritty --class gitlogue-screensaver -e gitlogue
+    before_sleep_cmd = loginctl lock-session
+    after_sleep_cmd = hyprctl dispatch dpms on
+}
+
+listener {
+    timeout = 300  # 5 minutes
+    on-timeout = loginctl lock-session
+}
+
+listener {
+    timeout = 600  # 10 minutes
+    on-timeout = hyprctl dispatch dpms off
+    on-resume = hyprctl dispatch dpms on
+}
+```
+
+And in `~/.config/hypr/hyprland.conf`:
+
+```bash
+# Window rules for gitlogue screensaver
+windowrulev2 = float,class:^(gitlogue-screensaver)$
+windowrulev2 = fullscreen,class:^(gitlogue-screensaver)$
+windowrulev2 = noblur,class:^(gitlogue-screensaver)$
+
+# Start hypridle
+exec-once = hypridle
+```
+
+Exit with Esc or any key to unlock.
+
+#### Sway with swayidle
+
+Add to `~/.config/sway/config`:
+
+```bash
+# Screensaver with swayidle
+exec swayidle -w \
+    timeout 300 'alacritty --class gitlogue-screensaver -e gitlogue' \
+    timeout 600 'swaymsg "output * dpms off"' \
+         resume 'swaymsg "output * dpms on"' \
+    before-sleep 'swaylock -f'
+
+# Window rules for gitlogue screensaver
+for_window [app_id="gitlogue-screensaver"] fullscreen enable, floating enable
+```
+
+#### i3 with xautolock
+
+Add to `~/.config/i3/config`:
+
+```bash
+# Screensaver with xautolock
+exec --no-startup-id xautolock -time 5 -locker 'alacritty --class gitlogue-screensaver -e gitlogue'
+
+# Window rules for gitlogue screensaver
+for_window [class="gitlogue-screensaver"] fullscreen enable, floating enable
+```
+
+#### X11 with xidlehook
+
+For more advanced idle detection:
+
+```bash
+# Install xidlehook
+# Arch: pacman -S xidlehook
+# Ubuntu: cargo install xidlehook
+
+# Add to your WM startup or ~/.xinitrc
+xidlehook \
+  --not-when-fullscreen \
+  --not-when-audio \
+  --timer 300 \
+    'alacritty --class gitlogue-screensaver -e gitlogue' \
+    'pkill gitlogue' \
+  --timer 600 \
+    'xset dpms force off' \
+    'xset dpms force on'
+```
+
+#### Standalone Screensaver Script
+
+For any setup, create a simple script:
+
+```bash
+#!/bin/bash
+# ~/.local/bin/gitlogue-screensaver
+
+# Pick a random repository from your projects
+REPOS=(
+    ~/Projects/my-project
+    ~/Projects/another-project
+    ~/work/important-repo
+)
+REPO="${REPOS[$RANDOM % ${#REPOS[@]}]}"
+
+# Launch gitlogue in fullscreen
+cd "$REPO"
+alacritty --class gitlogue-screensaver --title "Screensaver" \
+    -o "window.opacity=0.95" \
+    -e gitlogue --theme tokyo-night --speed 20
+```
+
+Make it executable:
+
+```bash
+chmod +x ~/.local/bin/gitlogue-screensaver
+```
+
+Use with any idle daemon by calling `gitlogue-screensaver` instead of `alacritty -e gitlogue`.
+
+**Pro tips**:
+- Use `--speed 15-20` for more dynamic screensaver effect
+- Match the theme with your desktop environment
+- Consider using `--background=false` for transparent terminals
+- Add multiple repositories to randomly cycle through different projects
+
 ### Desktop Ricing
 
 gitlogue is perfect for r/unixporn-style desktop customization and tiling window manager setups.
