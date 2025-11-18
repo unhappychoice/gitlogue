@@ -1,3 +1,4 @@
+pub mod bash;
 pub mod c;
 pub mod clojure;
 pub mod cpp;
@@ -36,6 +37,7 @@ pub fn get_language(path: &Path) -> Option<(Language, &'static str)> {
         "ts" | "tsx" => Some((typescript::language(), typescript::HIGHLIGHT_QUERY)),
         "js" | "jsx" | "mjs" | "cjs" => Some((javascript::language(), javascript::HIGHLIGHT_QUERY)),
         "py" | "pyw" => Some((python::language(), python::HIGHLIGHT_QUERY)),
+        "sh" | "bash" | "zsh" => Some((bash::language(), bash::HIGHLIGHT_QUERY)),
         "go" => Some((go_lang::language(), go_lang::HIGHLIGHT_QUERY)),
         "rb" | "rbw" | "rake" | "gemspec" => Some((ruby::language(), ruby::HIGHLIGHT_QUERY)),
         "swift" => Some((swift::language(), swift::HIGHLIGHT_QUERY)),
