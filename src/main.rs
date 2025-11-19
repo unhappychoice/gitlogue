@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
 use git::GitRepository;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use theme::Theme;
 use ui::UI;
 
@@ -118,23 +118,41 @@ pub enum ThemeCommands {
 
 impl Args {
     pub fn validate(&self) -> Result<PathBuf> {
-        let repo_path = self.path.clone().unwrap_or_else(|| PathBuf::from("."));
+        let start_path = self.path.clone().unwrap_or_else(|| PathBuf::from("."));
 
-        if !repo_path.exists() {
-            anyhow::bail!("Path does not exist: {}", repo_path.display());
+        if !start_path.exists() {
+            anyhow::bail!("Path does not exist: {}", start_path.display());
         }
 
-        let git_dir = repo_path.join(".git");
-        if !git_dir.exists() {
-            anyhow::bail!(
-                "Not a Git repository: {} (or any parent directories)",
-                repo_path.display()
-            );
-        }
-
-        repo_path
+        let canonical_path = start_path
             .canonicalize()
-            .context("Failed to resolve repository path")
+            .context("Failed to resolve path")?;
+
+        let repo_path = Self::find_git_root(&canonical_path).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Not a Git repository: {} (or any parent directories)",
+                start_path.display()
+            )
+        })?;
+
+        Ok(repo_path)
+    }
+
+    fn find_git_root(start_path: &Path) -> Option<PathBuf> {
+        let mut current = if start_path.is_file() {
+            start_path.parent()?.to_path_buf()
+        } else {
+            start_path.to_path_buf()
+        };
+
+        loop {
+            if current.join(".git").exists() {
+                return Some(current);
+            }
+            if !current.pop() {
+                return None;
+            }
+        }
     }
 }
 
