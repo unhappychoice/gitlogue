@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-11-20
+
+### ✨ Features
+
+- feat: support --order option with commit ranges ([89da1c5](https://github.com/unhappychoice/gitlogue/commit/89da1c5))
+- feat: add commit range option ([96f6b4a](https://github.com/unhappychoice/gitlogue/commit/96f6b4a))
+- feat: enable SIGTERM and SIGHUP handling in ctrlc crate ([64f170c](https://github.com/unhappychoice/gitlogue/commit/64f170c))
+- feat: add Ctrl+C and q key support for quitting application ([78cb6d2](https://github.com/unhappychoice/gitlogue/commit/78cb6d2))
+
+### 🐛 Bug Fixes
+
+- fix: detect git repository from subdirectories ([5ee8605](https://github.com/unhappychoice/gitlogue/commit/5ee8605))
+
+### 📝 Other Changes
+
+- chore: bump version to v0.3.0 ([28e97f1](https://github.com/unhappychoice/gitlogue/commit/28e97f1))
+- style: apply cargo fmt ([00c07e6](https://github.com/unhappychoice/gitlogue/commit/00c07e6))
+- refactor: reject symmetric difference operator in commit range ([4ccc02d](https://github.com/unhappychoice/gitlogue/commit/4ccc02d))
+- docs: update documentation for commit range feature ([1dd81be](https://github.com/unhappychoice/gitlogue/commit/1dd81be))
+- chore(deps): bump clap from 4.5.52 to 4.5.53 ([5afa869](https://github.com/unhappychoice/gitlogue/commit/5afa869))
+- Add 'bun.lockb' to ignored files list ([01d86ee](https://github.com/unhappychoice/gitlogue/commit/01d86ee))
+- Add bun.lock to ignored files list ([d701fc4](https://github.com/unhappychoice/gitlogue/commit/d701fc4))
+- docs: add instructions for installing on Arch Linux ([57a2c6e](https://github.com/unhappychoice/gitlogue/commit/57a2c6e))
+
+
 ## [0.2.0] - 2025-11-19
 
 ### ✨ Features
@@ -23,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📝 Other Changes
 
-- chore: bump version to v0.2.0 ([1476f57](https://github.com/unhappychoice/gitlogue/commit/1476f57))
+- chore: bump version to v0.2.0 ([e18f250](https://github.com/unhappychoice/gitlogue/commit/e18f250))
 - docs: add --loop option documentation ([0e03086](https://github.com/unhappychoice/gitlogue/commit/0e03086))
 - docs: add --order option documentation ([db237d9](https://github.com/unhappychoice/gitlogue/commit/db237d9))
 - docs: add Terminal Trove Tool of The Week badge ([8fbd92b](https://github.com/unhappychoice/gitlogue/commit/8fbd92b))

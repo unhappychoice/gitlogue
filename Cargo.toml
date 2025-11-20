@@ -1,6 +1,6 @@
 [package]
 name = "gitlogue"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["unhappychoice"]
 description = "A Git history screensaver - watch your code rewrite itself"
