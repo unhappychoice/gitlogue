@@ -80,11 +80,17 @@ gitlogue
 # View a specific commit
 gitlogue --commit abc123
 
+# Replay a range of commits
+gitlogue --commit HEAD~5..HEAD
+
 # Replay commits in chronological order (oldest first)
 gitlogue --order asc
 
 # Loop a specific commit continuously
 gitlogue --commit abc123 --loop
+
+# Loop through a commit range
+gitlogue --commit HEAD~10..HEAD --loop
 
 # Use a different theme
 gitlogue --theme dracula

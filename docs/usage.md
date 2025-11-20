@@ -43,15 +43,37 @@ Replace `a1b2c3d` with the commit hash you want to view. The commit hash can be:
 
 ## Command-Line Options
 
-### `--commit <HASH>`
+### `--commit <HASH_OR_RANGE>`
 
-Display a specific commit instead of random playback.
+Display a specific commit or commit range instead of random playback.
 
+**Single commit:**
 ```bash
 gitlogue --commit abc123
 gitlogue --commit HEAD~5
 gitlogue --commit v0.1.0
 ```
+
+**Commit range:**
+```bash
+# Replay commits from HEAD~5 to HEAD
+gitlogue --commit HEAD~5..HEAD
+
+# Replay commits from a specific hash to HEAD
+gitlogue --commit abc123..
+
+# Replay commits from a specific hash to another
+gitlogue --commit abc123..def456
+
+# Open-ended range from beginning
+gitlogue --commit ..HEAD~10
+```
+
+When using commit ranges:
+- Commits are replayed in chronological order (oldest to newest)
+- Each commit is displayed with full animation before moving to the next
+- Merge commits are automatically excluded
+- Use `--loop` to replay the range continuously
 
 ### `--theme <NAME>`
 
@@ -108,15 +130,17 @@ Available orders:
 Enable continuous looping of the animation.
 
 ```bash
-gitlogue --loop                      # Loop random commits continuously
-gitlogue --commit abc123 --loop      # Loop a specific commit
-gitlogue --commit HEAD~5 --loop      # Loop the commit 5 before HEAD
+gitlogue --loop                           # Loop random commits continuously
+gitlogue --commit abc123 --loop           # Loop a specific commit
+gitlogue --commit HEAD~5 --loop           # Loop the commit 5 before HEAD
+gitlogue --commit HEAD~10..HEAD --loop    # Loop through a commit range
 ```
 
-This is especially useful when viewing a specific commit and you want it to replay indefinitely, perfect for:
+This is especially useful when viewing a specific commit or commit range and you want it to replay indefinitely, perfect for:
 - Demonstrations and presentations
 - Continuous display screens
 - Desktop ricing and ambience
+- Educational replays of feature development
 
 ### `--help`
 
@@ -181,6 +205,9 @@ git log --oneline --merges | head -5
 
 # Replay the commit
 gitlogue --commit abc123
+
+# Replay a series of commits from a feature branch
+gitlogue --commit feature-start..feature-end
 ```
 
 ### 3. Educational Demonstrations
@@ -190,6 +217,12 @@ Show students or team members how code evolved:
 ```bash
 # Show a specific refactoring commit
 gitlogue --commit refactor-commit-hash --speed 20
+
+# Demonstrate a feature development from start to finish
+gitlogue --commit feature-start..feature-end --speed 15
+
+# Show the last week of changes
+git log --since="1 week ago" --format="%H" | head -1 | xargs -I {} gitlogue --commit {}..HEAD
 ```
 
 ### 4. Project History Visualization
