@@ -34,7 +34,7 @@ pub fn get_language(path: &Path) -> Option<(Language, &'static str)> {
 
     match extension {
         "rs" => Some((rust::language(), rust::HIGHLIGHT_QUERY)),
-        "ts" | "tsx" => Some((typescript::language(), typescript::HIGHLIGHT_QUERY)),
+        "ts" | "tsx" | "mts" | "cts" => Some((typescript::language(), typescript::HIGHLIGHT_QUERY)),
         "js" | "jsx" | "mjs" | "cjs" => Some((javascript::language(), javascript::HIGHLIGHT_QUERY)),
         "py" | "pyw" => Some((python::language(), python::HIGHLIGHT_QUERY)),
         "sh" | "bash" | "zsh" => Some((bash::language(), bash::HIGHLIGHT_QUERY)),
