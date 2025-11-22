@@ -1,9 +1,14 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use git2::{Commit as Git2Commit, Delta, DiffOptions, Oid, Repository};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use rand::Rng;
 use std::cell::RefCell;
 use std::path::Path;
+use std::sync::OnceLock;
+
+// Thread-safe global pattern matcher for user-defined ignore patterns
+static USER_PATTERNS: OnceLock<GlobSet> = OnceLock::new();
 
 // Maximum blob size to read (500KB)
 const MAX_BLOB_SIZE: usize = 500 * 1024;
@@ -66,8 +71,38 @@ const EXCLUDED_PATTERNS: &[&str] = &[
     "__snapshots__",
 ];
 
+/// Initialize user-defined ignore patterns (call once at startup)
+pub fn init_ignore_patterns(patterns: &[String]) -> Result<()> {
+    if patterns.is_empty() {
+        return Ok(());
+    }
+
+    let mut builder = GlobSetBuilder::new();
+
+    for pattern in patterns {
+        let glob =
+            Glob::new(pattern).with_context(|| format!("Invalid glob pattern: {}", pattern))?;
+        builder.add(glob);
+    }
+
+    let globset = builder.build().context("Failed to build glob set")?;
+
+    USER_PATTERNS
+        .set(globset)
+        .map_err(|_| anyhow::anyhow!("User patterns already initialized"))?;
+
+    Ok(())
+}
+
 /// Check if a file should be excluded from diff animation
 pub fn should_exclude_file(path: &str) -> bool {
+    // Check user-defined patterns first
+    if let Some(patterns) = USER_PATTERNS.get() {
+        if patterns.is_match(path) {
+            return true;
+        }
+    }
+
     let filename = path.rsplit('/').next().unwrap_or(path);
 
     // Check if it's a lock file

@@ -92,6 +92,22 @@ pub struct Args {
     #[arg(long, help = "Display third-party license information")]
     pub license: bool,
 
+    #[arg(
+        short = 'i',
+        long = "ignore",
+        value_name = "PATTERN",
+        action = clap::ArgAction::Append,
+        help = "Ignore files matching pattern (gitignore syntax, can be specified multiple times)"
+    )]
+    pub ignore: Vec<String>,
+
+    #[arg(
+        long = "ignore-file",
+        value_name = "PATH",
+        help = "Path to file containing ignore patterns (one per line, like .gitignore)"
+    )]
+    pub ignore_file: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -205,6 +221,21 @@ fn main() -> Result<()> {
 
     // Load config: CLI arguments > config file > defaults
     let config = Config::load()?;
+
+    // Initialize ignore patterns: CLI flags > ignore-file > config
+    let mut patterns = config.ignore_patterns.clone();
+    if let Some(path) = &args.ignore_file {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            patterns.extend(
+                content
+                    .lines()
+                    .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+                    .map(String::from),
+            );
+        }
+    }
+    patterns.extend(args.ignore.clone());
+    git::init_ignore_patterns(&patterns).ok();
     let theme_name = args.theme.as_deref().unwrap_or(&config.theme);
     let speed = args.speed.unwrap_or(config.speed);
     let background = args.background.unwrap_or(config.background);
