@@ -8,6 +8,7 @@ use rand::Rng;
 use std::cell::RefCell;
 use std::path::Path;
 use std::sync::OnceLock;
+use gix::diff::blob::Algorithm;
 
 // Thread-safe global pattern matcher for user-defined ignore patterns
 static USER_PATTERNS: OnceLock<GlobSet> = OnceLock::new();
@@ -648,12 +649,12 @@ impl GitRepository {
             };
 
             let old_content = old_id.and_then(|id| Self::get_blob_content(repo, id).ok().flatten());
-
             let new_content = new_id.and_then(|id| Self::get_blob_content(repo, id).ok().flatten());
 
             // Generate diff hunks using imara-diff
+            let algo = repo.diff_algorithm()?;
             let (hunks, diff_text) = if !is_binary && old_id.is_some() && new_id.is_some() {
-                Self::generate_hunks(&old_content, &new_content)
+                Self::generate_hunks(&old_content, &new_content, algo)
             } else {
                 (Vec::new(), String::new())
             };
@@ -708,7 +709,7 @@ impl GitRepository {
     }
 
     fn get_blob_content(repo: &Repository, id: ObjectId) -> Result<Option<String>> {
-        let blob = repo.find_object(id)?.try_into_blob()?;
+        let blob = repo.find_blob(id)?;
         let data = blob.data.as_slice();
 
         if data.len() > MAX_BLOB_SIZE || data.contains(&0) {
@@ -721,14 +722,14 @@ impl GitRepository {
     fn generate_hunks(
         old_content: &Option<String>,
         new_content: &Option<String>,
+        algo: Algorithm,
     ) -> (Vec<DiffHunk>, String) {
         let old_str = old_content.as_deref().unwrap_or("");
         let new_str = new_content.as_deref().unwrap_or("");
 
-        // Use imara-diff for line-based diff
-        let input = imara_diff::intern::InternedInput::new(old_str, new_str);
-        let sink = imara_diff::UnifiedDiffBuilder::new(&input);
-        let diff_output = imara_diff::diff(imara_diff::Algorithm::Histogram, &input, sink);
+        let input = gix::diff::blob::intern::InternedInput::new(old_str, new_str);
+        let sink = gix::diff::blob::UnifiedDiffBuilder::with_writer(&input, String::new());
+        let diff_output = gix::diff::blob::diff(algo, &input, sink);
 
         // Parse the unified diff to extract hunks
         let hunks = Self::parse_unified_diff(&diff_output);
