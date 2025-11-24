@@ -631,7 +631,6 @@ dependencies = [
  "dirs",
  "gix",
  "globset",
- "imara-diff",
  "rand",
  "ratatui",
  "serde",

@@ -24,8 +24,7 @@ exclude = [
 ]
 
 [dependencies]
-gix = { version = "0.75", default-features = false, features = ["revision", "blob-diff", "max-performance-safe"] }
-imara-diff = "0.1"
+gix = { version = "0.75", default-features = false, features = ["revision", "blob-diff", "max-performance"] }
 ratatui = "0.29"
 crossterm = "0.29"
 tree-sitter = "0.25"
