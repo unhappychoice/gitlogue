@@ -137,12 +137,8 @@ pub enum FileStatus {
     Added,
     Deleted,
     Modified,
-    #[allow(dead_code)]
     Renamed,
-    #[allow(dead_code)]
     Copied,
-    #[allow(dead_code)]
-    Unmodified,
 }
 
 impl FileStatus {
@@ -153,7 +149,6 @@ impl FileStatus {
             FileStatus::Modified => "M",
             FileStatus::Renamed => "R",
             FileStatus::Copied => "C",
-            FileStatus::Unmodified => "U",
         }
     }
 }
@@ -164,7 +159,8 @@ impl FileStatus {
             Change::Addition { .. } => FileStatus::Added,
             Change::Deletion { .. } => FileStatus::Deleted,
             Change::Modification { .. } => FileStatus::Modified,
-            Change::Rewrite { .. } => FileStatus::Modified,
+            Change::Rewrite { copy: false, .. } => FileStatus::Renamed,
+            Change::Rewrite { copy: true, .. } => FileStatus::Copied,
         }
     }
 }
