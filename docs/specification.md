@@ -1,8 +1,8 @@
-# git-logue Specification (v0.1.0)
+# gitlogue Specification (v0.1.0)
 
 ## Overview
 
-`git-logue` is a **Git history screensaver** — a terminal-based ambient experience where code rewrites itself over time.
+`gitlogue` is a **Git history screensaver** — a terminal-based ambient experience where code rewrites itself over time.
 Commits are replayed as if a ghost developer were typing each change by hand:
 characters appear, vanish, and transform with natural pacing and syntax highlighting.
 
@@ -15,7 +15,7 @@ with animated typing and a live editor-style display.
 
 - **Command-line entrypoint:**
   ```bash
-  git-logue [--path <repo>] [--commit <hash>] [--speed <ms_per_char>]
+  gitlogue [--path <repo>] [--commit <hash>] [--speed <ms_per_char>]
   ```
 
 - **Modes:**
@@ -57,7 +57,7 @@ with animated typing and a live editor-style display.
 
 ### 5. Configuration
 
-Optional `.git-loguerc`:
+Optional `.gitloguerc`:
 ```toml
 [display]
 speed = 30          # milliseconds per character

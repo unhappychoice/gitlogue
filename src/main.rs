@@ -25,10 +25,10 @@ pub enum PlaybackOrder {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "git-logue",
-    version = "0.0.1",
+    name = "gitlogue",
+    version,
     about = "A Git history screensaver - watch your code rewrite itself",
-    long_about = "git-logue is a terminal-based screensaver that replays Git commits as if a ghost developer were typing each change by hand. Characters appear, vanish, and transform with natural pacing and syntax highlighting."
+    long_about = "gitlogue is a terminal-based screensaver that replays Git commits as if a ghost developer were typing each change by hand. Characters appear, vanish, and transform with natural pacing and syntax highlighting."
 )]
 pub struct Args {
     #[arg(
