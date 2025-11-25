@@ -127,6 +127,7 @@ pub struct GitRepository {
     // These modes are mutually exclusive based on CLI arguments.
     commit_index: RefCell<usize>,
     commit_range: RefCell<Option<Vec<Oid>>>,
+    author_filter: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -252,7 +253,22 @@ impl GitRepository {
             commit_cache: RefCell::new(None),
             commit_index: RefCell::new(0),
             commit_range: RefCell::new(None),
+            author_filter: None,
         })
+    }
+
+    pub fn set_author_filter(&mut self, author: Option<String>) {
+        self.author_filter = author.map(|a| a.to_lowercase());
+    }
+
+    fn matches_author(&self, commit: &Git2Commit) -> bool {
+        match &self.author_filter {
+            Some(filter) => {
+                let author_name = commit.author().name().unwrap_or("").to_lowercase();
+                author_name.contains(filter)
+            }
+            None => true,
+        }
     }
 
     pub fn get_commit(&self, hash: &str) -> Result<CommitMetadata> {
@@ -276,13 +292,16 @@ impl GitRepository {
             let mut candidates = Vec::new();
             for oid in revwalk.filter_map(|oid| oid.ok()) {
                 if let Ok(commit) = self.repo.find_commit(oid) {
-                    if commit.parent_count() <= 1 {
+                    if commit.parent_count() <= 1 && self.matches_author(&commit) {
                         candidates.push(oid);
                     }
                 }
             }
 
             if candidates.is_empty() {
+                if self.author_filter.is_some() {
+                    anyhow::bail!("No commits found for the specified author");
+                }
                 anyhow::bail!("No non-merge commits found in repository");
             }
 
@@ -470,10 +489,14 @@ impl GitRepository {
         let mut commits = Vec::new();
         for oid in revwalk.filter_map(|oid| oid.ok()) {
             if let Ok(commit) = self.repo.find_commit(oid) {
-                if commit.parent_count() <= 1 {
+                if commit.parent_count() <= 1 && self.matches_author(&commit) {
                     commits.push(oid);
                 }
             }
+        }
+
+        if commits.is_empty() && self.author_filter.is_some() {
+            anyhow::bail!("No commits found for the specified author in the given range");
         }
 
         commits.reverse();
@@ -489,13 +512,16 @@ impl GitRepository {
             let mut candidates = Vec::new();
             for oid in revwalk.filter_map(|oid| oid.ok()) {
                 if let Ok(commit) = self.repo.find_commit(oid) {
-                    if commit.parent_count() <= 1 {
+                    if commit.parent_count() <= 1 && self.matches_author(&commit) {
                         candidates.push(oid);
                     }
                 }
             }
 
             if candidates.is_empty() {
+                if self.author_filter.is_some() {
+                    anyhow::bail!("No commits found for the specified author");
+                }
                 anyhow::bail!("No non-merge commits found in repository");
             }
 
