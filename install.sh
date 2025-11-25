@@ -8,12 +8,42 @@ get_latest_release() {
     curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
+check_glibc_version() {
+    if ! command -v ldd &> /dev/null; then
+        return
+    fi
+
+    GLIBC_VERSION=$(ldd --version 2>&1 | head -n1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+    REQUIRED_VERSION="2.39"
+
+    if [ -n "$GLIBC_VERSION" ]; then
+        if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$GLIBC_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
+            echo ""
+            echo "WARNING: Your glibc version ($GLIBC_VERSION) is older than $REQUIRED_VERSION."
+            echo "The pre-built binary may not work on your system."
+            echo ""
+            echo "Options:"
+            echo "  1. Upgrade your OS to get a newer glibc"
+            echo "  2. Build from source: cargo install gitlogue"
+            echo "  3. Continue anyway and see if it works"
+            echo ""
+            read -p "Continue with installation? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo "Installation cancelled."
+                exit 0
+            fi
+        fi
+    fi
+}
+
 detect_platform() {
     OS="$(uname -s)"
     ARCH="$(uname -m)"
 
     case "$OS" in
         Linux*)
+            check_glibc_version
             case "$ARCH" in
                 x86_64)
                     echo "x86_64-unknown-linux-gnu"
