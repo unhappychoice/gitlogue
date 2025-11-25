@@ -683,7 +683,7 @@ impl GitRepository {
                 let new_content =
                     new_id.and_then(|id| Self::get_blob_content(repo, id).ok().flatten());
 
-                let hunks = if !is_binary && old_id.is_some() && new_id.is_some() {
+                let hunks = if !is_binary {
                     Self::generate_hunks(old_content.as_deref(), new_content.as_deref(), algo)
                 } else {
                     Vec::new()
