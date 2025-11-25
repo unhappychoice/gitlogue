@@ -227,6 +227,7 @@ fn main() -> Result<()> {
         .as_ref()
         .map(|c| c.contains(".."))
         .unwrap_or(false);
+    let is_author_filtered = args.author.is_some();
 
     // Load config: CLI arguments > config file > defaults
     let config = Config::load()?;
@@ -254,8 +255,8 @@ fn main() -> Result<()> {
         _ => PlaybackOrder::Random,
     });
 
-    // Range mode defaults to asc (chronological) if not explicitly specified
-    if is_range_mode && args.order.is_none() {
+    // Filtered modes default to asc (chronological) if not explicitly specified
+    if (is_range_mode || is_author_filtered) && args.order.is_none() {
         order = PlaybackOrder::Asc;
     }
 
@@ -290,8 +291,8 @@ fn main() -> Result<()> {
     };
 
     // Create UI with repository reference
-    // Range mode always needs repo reference for iteration
-    let repo_ref = if is_range_mode {
+    // Filtered modes (range/author) always need repo ref for iteration
+    let repo_ref = if is_range_mode || is_author_filtered {
         Some(&repo)
     } else if is_commit_specified && !loop_playback {
         None
