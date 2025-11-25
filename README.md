@@ -92,6 +92,9 @@ gitlogue --commit abc123 --loop
 # Loop through a commit range
 gitlogue --commit HEAD~10..HEAD --loop
 
+# Filter commits by author
+gitlogue --author "Alice"
+
 # Use a different theme
 gitlogue --theme dracula
 

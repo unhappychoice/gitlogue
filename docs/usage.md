@@ -125,6 +125,22 @@ Available orders:
 - `asc` - Replays commits from oldest to newest
 - `desc` - Replays commits from newest to oldest
 
+### `--author <NAME>` / `-a <NAME>`
+
+Filter commits by author name or email (case-insensitive partial match).
+
+```bash
+gitlogue --author "Alice"           # Match author name containing "Alice"
+gitlogue -a john                    # Match "john" in name or email
+gitlogue --author "@company.com"    # Match email domain
+```
+
+When using author filtering:
+- Commits are replayed in chronological order (oldest to newest) by default
+- Playback stops after all matching commits are shown
+- Use `--loop` to replay continuously
+- Use `--order` to change playback order
+
 ### `--loop`
 
 Enable continuous looping of the animation.
@@ -334,14 +350,17 @@ gitlogue will only show commits from the current branch's history.
 
 ### Filter Commits by Author
 
-Use git to create a filtered view:
+Use the `--author` option to filter commits:
 
 ```bash
-# Create a temporary branch with commits from a specific author
-git log --author="Alice" --pretty=format:"%H" | head -20 | xargs git cherry-pick
+# Show commits from a specific author
+gitlogue --author "Alice"
 
-# Then run gitlogue
-gitlogue
+# Match by email
+gitlogue --author "alice@example.com"
+
+# Combine with other options
+gitlogue --author "Bob" --theme dracula --speed 20
 ```
 
 ### Combine with Terminal Recording
