@@ -7,9 +7,10 @@ use unicode_width::UnicodeWidthStr;
 
 // Duration multipliers relative to typing speed
 const CURSOR_MOVE_PAUSE: f64 = 0.5; // Cursor movement between lines (base speed)
-const CURSOR_MOVE_SHORT_MULTIPLIER: f64 = 1.0; // Speed for short distances (1-5 lines)
-const CURSOR_MOVE_MEDIUM_MULTIPLIER: f64 = 0.3; // Speed for medium distances (6-20 lines)
-const CURSOR_MOVE_LONG_MULTIPLIER: f64 = 0.1; // Speed for long distances (21+ lines)
+const CURSOR_MOVE_SHORT_MULTIPLIER: f64 = 1.0; // Speed for short distances (1-50 lines)
+const CURSOR_MOVE_MEDIUM_MULTIPLIER: f64 = 0.3; // Speed for medium distances (51-200 lines)
+const CURSOR_MOVE_LONG_MULTIPLIER: f64 = 0.05; // Speed for long distances (201+ lines)
+const MAX_SCROLL_STEPS: usize = 60; // Maximum animation steps for any scroll distance
 const DELETE_LINE_PAUSE: f64 = 10.0; // After deleting a line
 const INSERT_LINE_PAUSE: f64 = 6.7; // After inserting a line
 const HUNK_PAUSE: f64 = 50.0; // Between hunks
@@ -587,17 +588,26 @@ impl AnimationEngine {
         }
 
         // Determine base speed multiplier based on total distance
-        let base_speed_multiplier = if distance <= 5 {
+        let base_speed_multiplier = if distance <= 50 {
             CURSOR_MOVE_SHORT_MULTIPLIER
-        } else if distance <= 20 {
+        } else if distance <= 200 {
             CURSOR_MOVE_MEDIUM_MULTIPLIER
         } else {
             CURSOR_MOVE_LONG_MULTIPLIER
         };
 
-        // Calculate line positions with easing (slow start, fast middle, slow end)
-        let num_steps = (distance as f64 * 0.3).max(10.0).min(distance as f64) as usize;
-        let mut positions = Vec::new();
+        // Limit total animation steps for performance
+        // For very long distances, use fewer steps with larger jumps
+        let num_steps = if distance <= 30 {
+            distance // Show every line for short distances
+        } else {
+            // Scale steps logarithmically for longer distances
+            // This ensures smooth animation while limiting total steps
+            let log_steps = (distance as f64).ln() * 8.0;
+            (log_steps as usize).clamp(20, MAX_SCROLL_STEPS)
+        };
+
+        let mut positions = Vec::with_capacity(num_steps + 1);
 
         for i in 0..=num_steps {
             let t = i as f64 / num_steps as f64;
