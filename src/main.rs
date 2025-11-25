@@ -96,7 +96,7 @@ pub struct Args {
         short = 'a',
         long = "author",
         value_name = "NAME",
-        help = "Filter commits by author name (case-insensitive partial match)"
+        help = "Filter commits by author name or email (case-insensitive partial match)"
     )]
     pub author: Option<String>,
 

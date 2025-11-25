@@ -264,8 +264,10 @@ impl GitRepository {
     fn matches_author(&self, commit: &Git2Commit) -> bool {
         match &self.author_filter {
             Some(filter) => {
-                let author_name = commit.author().name().unwrap_or("").to_lowercase();
-                author_name.contains(filter)
+                let author = commit.author();
+                let name = author.name().unwrap_or("").to_lowercase();
+                let email = author.email().unwrap_or("").to_lowercase();
+                name.contains(filter) || email.contains(filter)
             }
             None => true,
         }
