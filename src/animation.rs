@@ -7,9 +7,12 @@ use unicode_width::UnicodeWidthStr;
 
 // Duration multipliers relative to typing speed
 const CURSOR_MOVE_PAUSE: f64 = 0.5; // Cursor movement between lines (base speed)
-const CURSOR_MOVE_SHORT_MULTIPLIER: f64 = 1.0; // Speed for short distances (1-5 lines)
-const CURSOR_MOVE_MEDIUM_MULTIPLIER: f64 = 0.3; // Speed for medium distances (6-20 lines)
-const CURSOR_MOVE_LONG_MULTIPLIER: f64 = 0.1; // Speed for long distances (21+ lines)
+const CURSOR_MOVE_SHORT_MULTIPLIER: f64 = 1.0; // Speed for short distances (1-50 lines)
+const CURSOR_MOVE_MEDIUM_MULTIPLIER: f64 = 0.3; // Speed for medium distances (51-200 lines)
+const CURSOR_MOVE_LONG_MULTIPLIER: f64 = 0.05; // Speed for long distances (201+ lines)
+const MAX_SCROLL_STEPS: usize = 60; // Maximum animation steps for any scroll distance
+const MIN_LOG_STEPS: usize = 50; // Minimum steps for logarithmic scaling (aligned with SHORT threshold)
+const LOG_SCALE_FACTOR: f64 = 8.0; // Scaling factor for logarithmic step calculation
 const DELETE_LINE_PAUSE: f64 = 10.0; // After deleting a line
 const INSERT_LINE_PAUSE: f64 = 6.7; // After inserting a line
 const HUNK_PAUSE: f64 = 50.0; // Between hunks
@@ -535,6 +538,13 @@ impl AnimationEngine {
         let mut current_cursor_line = 0;
         let mut line_offset = 0i64; // Track how buffer lines differ from old file
 
+        // Parse old_content into lines for indentation calculation during cursor movement
+        let old_lines: Vec<&str> = change
+            .old_content
+            .as_ref()
+            .map(|c| c.lines().collect())
+            .unwrap_or_default();
+
         // Process each hunk
         for hunk in &change.hunks {
             // Calculate target line in current buffer
@@ -545,8 +555,12 @@ impl AnimationEngine {
             // Calculate distance for speed adjustment
             let distance = target_line.abs_diff(current_cursor_line);
 
-            current_cursor_line =
-                self.generate_cursor_movement(current_cursor_line, target_line, distance);
+            current_cursor_line = self.generate_cursor_movement(
+                current_cursor_line,
+                target_line,
+                distance,
+                &old_lines,
+            );
 
             let (final_cursor_line, _final_buffer_line) =
                 self.generate_steps_for_hunk(hunk, current_cursor_line, target_line);
@@ -581,23 +595,34 @@ impl AnimationEngine {
         from_line: usize,
         to_line: usize,
         distance: usize,
+        lines: &[&str],
     ) -> usize {
         if from_line == to_line {
             return to_line;
         }
 
         // Determine base speed multiplier based on total distance
-        let base_speed_multiplier = if distance <= 5 {
+        let base_speed_multiplier = if distance <= 50 {
             CURSOR_MOVE_SHORT_MULTIPLIER
-        } else if distance <= 20 {
+        } else if distance <= 200 {
             CURSOR_MOVE_MEDIUM_MULTIPLIER
         } else {
             CURSOR_MOVE_LONG_MULTIPLIER
         };
 
-        // Calculate line positions with easing (slow start, fast middle, slow end)
-        let num_steps = (distance as f64 * 0.3).max(10.0).min(distance as f64) as usize;
-        let mut positions = Vec::new();
+        // Limit total animation steps for performance
+        // For very long distances, use fewer steps with larger jumps
+        // Threshold aligned with SHORT distance category (50) to ensure monotonicity
+        let num_steps = if distance <= MIN_LOG_STEPS {
+            distance // Show every line for short distances
+        } else {
+            // Scale steps logarithmically for longer distances
+            // This ensures smooth animation while limiting total steps
+            let log_steps = (distance as f64).ln() * LOG_SCALE_FACTOR;
+            (log_steps as usize).clamp(MIN_LOG_STEPS, MAX_SCROLL_STEPS)
+        };
+
+        let mut positions = Vec::with_capacity(num_steps + 1);
 
         for i in 0..=num_steps {
             let t = i as f64 / num_steps as f64;
@@ -622,7 +647,12 @@ impl AnimationEngine {
 
         for line in positions {
             if line != from_line {
-                self.steps.push(AnimationStep::MoveCursor { line, col: 0 });
+                // Calculate indentation (first non-whitespace character position)
+                let col = lines
+                    .get(line)
+                    .map(|l| l.chars().take_while(|c| c.is_whitespace()).count())
+                    .unwrap_or(0);
+                self.steps.push(AnimationStep::MoveCursor { line, col });
                 self.steps.push(AnimationStep::Pause {
                     duration_ms: base_pause,
                 });
@@ -697,9 +727,15 @@ impl AnimationEngine {
                 LineChangeType::Context => {
                     // Move cursor to next line if needed
                     if buffer_line != cursor_line {
+                        // Calculate indentation (first non-whitespace character position)
+                        let col = line_change
+                            .content
+                            .chars()
+                            .take_while(|c| c.is_whitespace())
+                            .count();
                         self.steps.push(AnimationStep::MoveCursor {
                             line: buffer_line,
-                            col: 0,
+                            col,
                         });
                         self.steps.push(AnimationStep::Pause {
                             duration_ms: (self.speed_ms as f64 * CURSOR_MOVE_PAUSE) as u64,
@@ -838,7 +874,13 @@ impl AnimationEngine {
                 self.active_pane = ActivePane::Editor;
                 self.buffer.delete_line(line);
                 self.buffer.cursor_line = line;
-                self.buffer.cursor_col = 0;
+                // Set cursor to first non-whitespace position of the line that moved up
+                self.buffer.cursor_col = self
+                    .buffer
+                    .lines
+                    .get(line)
+                    .map(|l| l.chars().take_while(|c| c.is_whitespace()).count())
+                    .unwrap_or(0);
 
                 // Track line offset for old_highlights mapping
                 self.line_offset -= 1;
