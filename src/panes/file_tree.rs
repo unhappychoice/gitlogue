@@ -99,7 +99,6 @@ impl FileTreePane {
                     match line.change_type {
                         LineChangeType::Addition => additions += 1,
                         LineChangeType::Deletion => deletions += 1,
-                        _ => {}
                     }
                 }
             }

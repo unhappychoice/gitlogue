@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use git2::{Commit as Git2Commit, Delta, DiffOptions, Oid, Repository};
+use gix::bstr::ByteSlice;
+use gix::diff::blob::Algorithm;
+use gix::object::tree::diff::Change;
+use gix::{ObjectId, Repository};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use rand::Rng;
 use std::cell::RefCell;
@@ -122,11 +125,11 @@ pub fn should_exclude_file(path: &str) -> bool {
 
 pub struct GitRepository {
     repo: Repository,
-    commit_cache: RefCell<Option<Vec<Oid>>>,
+    commit_cache: RefCell<Option<Vec<ObjectId>>>,
     // Shared index for both cache-based playback (asc/desc) and range playback.
     // These modes are mutually exclusive based on CLI arguments.
     commit_index: RefCell<usize>,
-    commit_range: RefCell<Option<Vec<Oid>>>,
+    commit_range: RefCell<Option<Vec<ObjectId>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,7 +139,6 @@ pub enum FileStatus {
     Modified,
     Renamed,
     Copied,
-    Unmodified,
 }
 
 impl FileStatus {
@@ -147,21 +149,18 @@ impl FileStatus {
             FileStatus::Modified => "M",
             FileStatus::Renamed => "R",
             FileStatus::Copied => "C",
-            FileStatus::Unmodified => "U",
         }
     }
 }
 
-impl From<Delta> for FileStatus {
-    fn from(delta: Delta) -> Self {
-        match delta {
-            Delta::Added => FileStatus::Added,
-            Delta::Deleted => FileStatus::Deleted,
-            Delta::Modified => FileStatus::Modified,
-            Delta::Renamed => FileStatus::Renamed,
-            Delta::Copied => FileStatus::Copied,
-            Delta::Unmodified => FileStatus::Unmodified,
-            _ => FileStatus::Modified,
+impl FileStatus {
+    fn from_change(change: &Change<'_, '_, '_>) -> Self {
+        match change {
+            Change::Addition { .. } => FileStatus::Added,
+            Change::Deletion { .. } => FileStatus::Deleted,
+            Change::Modification { .. } => FileStatus::Modified,
+            Change::Rewrite { copy: false, .. } => FileStatus::Renamed,
+            Change::Rewrite { copy: true, .. } => FileStatus::Copied,
         }
     }
 }
@@ -170,7 +169,6 @@ impl From<Delta> for FileStatus {
 pub enum LineChangeType {
     Addition,
     Deletion,
-    Context,
 }
 
 #[derive(Debug, Clone)]
@@ -244,9 +242,95 @@ impl CommitMetadata {
     }
 }
 
+struct DiffHunkCollector<'a> {
+    input: &'a gix::diff::blob::intern::InternedInput<&'a str>,
+    hunks: Vec<DiffHunk>,
+    current_hunk: Option<DiffHunk>,
+    old_line_no: usize,
+    new_line_no: usize,
+}
+
+impl<'a> DiffHunkCollector<'a> {
+    fn new(input: &'a gix::diff::blob::intern::InternedInput<&'a str>) -> Self {
+        Self {
+            input,
+            hunks: Vec::new(),
+            current_hunk: None,
+            old_line_no: 1,
+            new_line_no: 1,
+        }
+    }
+
+    fn finish_current_hunk(&mut self) {
+        if let Some(hunk) = self.current_hunk.take() {
+            self.hunks.push(hunk);
+        }
+    }
+}
+
+impl<'a> gix::diff::blob::Sink for DiffHunkCollector<'a> {
+    type Out = Vec<DiffHunk>;
+
+    fn process_change(&mut self, before: std::ops::Range<u32>, after: std::ops::Range<u32>) {
+        // Finish previous hunk if it exists
+        self.finish_current_hunk();
+
+        let old_start = before.start as usize + 1;
+        let new_start = after.start as usize + 1;
+        let old_lines = (before.end - before.start) as usize;
+        let new_lines = (after.end - after.start) as usize;
+
+        self.old_line_no = old_start;
+        self.new_line_no = new_start;
+
+        let mut lines = Vec::new();
+
+        // Process deletions from the before range
+        for i in before.start..before.end {
+            if let Some(line_token) = self.input.before.get(i as usize) {
+                let content = self.input.interner[*line_token].to_string();
+                lines.push(LineChange {
+                    change_type: LineChangeType::Deletion,
+                    content,
+                    old_line_no: Some(self.old_line_no),
+                    new_line_no: None,
+                });
+                self.old_line_no += 1;
+            }
+        }
+
+        // Process additions from the after range
+        for i in after.start..after.end {
+            if let Some(line_token) = self.input.after.get(i as usize) {
+                let content = self.input.interner[*line_token].to_string();
+                lines.push(LineChange {
+                    change_type: LineChangeType::Addition,
+                    content,
+                    old_line_no: None,
+                    new_line_no: Some(self.new_line_no),
+                });
+                self.new_line_no += 1;
+            }
+        }
+
+        self.current_hunk = Some(DiffHunk {
+            old_start,
+            old_lines,
+            new_start,
+            new_lines,
+            lines,
+        });
+    }
+
+    fn finish(mut self) -> Self::Out {
+        self.finish_current_hunk();
+        self.hunks
+    }
+}
+
 impl GitRepository {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let repo = Repository::open(path).context("Failed to open Git repository")?;
+        let repo = gix::open(path.as_ref()).context("Failed to open Git repository")?;
         Ok(Self {
             repo,
             commit_cache: RefCell::new(None),
@@ -256,12 +340,13 @@ impl GitRepository {
     }
 
     pub fn get_commit(&self, hash: &str) -> Result<CommitMetadata> {
-        let obj = self
+        let spec = self
             .repo
-            .revparse_single(hash)
+            .rev_parse_single(hash)
             .context("Invalid commit hash or commit not found")?;
 
-        let commit = obj.peel_to_commit().context("Object is not a commit")?;
+        let commit_id = spec.object()?.id;
+        let commit = self.repo.find_commit(commit_id)?;
 
         Self::extract_metadata_with_changes(&self.repo, &commit)
     }
@@ -270,15 +355,16 @@ impl GitRepository {
         // Check if cache exists, if not populate it
         let mut cache = self.commit_cache.borrow_mut();
         if cache.is_none() {
-            let mut revwalk = self.repo.revwalk()?;
-            revwalk.push_head()?;
+            let head = self.repo.head_id()?;
+            let commits = self.repo.rev_walk([head]).all()?.filter_map(Result::ok);
 
             let mut candidates = Vec::new();
-            for oid in revwalk.filter_map(|oid| oid.ok()) {
-                if let Ok(commit) = self.repo.find_commit(oid) {
-                    if commit.parent_count() <= 1 {
-                        candidates.push(oid);
-                    }
+            for info in commits {
+                let Ok(commit) = self.repo.find_commit(info.id) else {
+                    continue;
+                };
+                if commit.parent_ids().count() <= 1 {
+                    candidates.push(info.id);
                 }
             }
 
@@ -428,7 +514,7 @@ impl GitRepository {
         Self::extract_metadata_with_changes(&self.repo, &commit)
     }
 
-    fn parse_commit_range(&self, range: &str) -> Result<Vec<Oid>> {
+    fn parse_commit_range(&self, range: &str) -> Result<Vec<ObjectId>> {
         // Reject symmetric difference operator (not supported)
         if range.contains("...") {
             anyhow::bail!(
@@ -451,27 +537,36 @@ impl GitRepository {
         let start = if parts[0].is_empty() {
             None
         } else {
-            Some(self.repo.revparse_single(parts[0])?.id())
+            Some(self.repo.rev_parse_single(parts[0])?.object()?.id)
         };
 
-        let end = if parts[1].is_empty() {
-            self.repo.head()?.peel_to_commit()?.id()
+        let end: ObjectId = if parts[1].is_empty() {
+            self.repo.head_id()?.into()
         } else {
-            self.repo.revparse_single(parts[1])?.id()
+            self.repo.rev_parse_single(parts[1])?.object()?.id
         };
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.push(end)?;
-
-        if let Some(start_oid) = start {
-            revwalk.hide(start_oid)?;
-        }
+        // Build list of commits to exclude if start is specified
+        // TODO: use `with_hidden()` once that can be trusted.
+        let exclude_set: gix::hashtable::HashSet = if let Some(start_oid) = start {
+            self.repo
+                .rev_walk([start_oid])
+                .all()?
+                .filter_map(Result::ok)
+                .map(|info| info.id)
+                .collect()
+        } else {
+            Default::default()
+        };
 
         let mut commits = Vec::new();
-        for oid in revwalk.filter_map(|oid| oid.ok()) {
-            if let Ok(commit) = self.repo.find_commit(oid) {
-                if commit.parent_count() <= 1 {
-                    commits.push(oid);
+        for info in self.repo.rev_walk([end]).all()?.filter_map(Result::ok) {
+            if !exclude_set.contains(&info.id) {
+                let Ok(commit) = self.repo.find_commit(info.id) else {
+                    continue;
+                };
+                if commit.parent_ids().count() <= 1 {
+                    commits.push(info.id);
                 }
             }
         }
@@ -483,15 +578,16 @@ impl GitRepository {
     fn populate_cache(&self) -> Result<()> {
         let mut cache = self.commit_cache.borrow_mut();
         if cache.is_none() {
-            let mut revwalk = self.repo.revwalk()?;
-            revwalk.push_head()?;
+            let head = self.repo.head_id()?;
+            let commits = self.repo.rev_walk([head]).all()?.filter_map(Result::ok);
 
             let mut candidates = Vec::new();
-            for oid in revwalk.filter_map(|oid| oid.ok()) {
-                if let Ok(commit) = self.repo.find_commit(oid) {
-                    if commit.parent_count() <= 1 {
-                        candidates.push(oid);
-                    }
+            for info in commits {
+                let Ok(commit) = self.repo.find_commit(info.id) else {
+                    continue;
+                };
+                if commit.parent_ids().count() <= 1 {
+                    candidates.push(info.id);
                 }
             }
 
@@ -506,14 +602,17 @@ impl GitRepository {
 
     fn extract_metadata_with_changes(
         repo: &Repository,
-        commit: &Git2Commit,
+        commit: &gix::Commit,
     ) -> Result<CommitMetadata> {
-        let hash = commit.id().to_string();
-        let author = commit.author();
-        let author_name = author.name().unwrap_or("Unknown").to_string();
-        let timestamp = author.when().seconds();
+        let hash = commit.id.to_string();
+        let commit_obj = commit.decode()?;
+        let author_sig = commit_obj.author();
+        let author_name = author_sig.name.to_str_lossy().into_owned();
+
+        // Parse the time string (format: "seconds timezone") - we only need the seconds
+        let timestamp = author_sig.time()?.seconds;
         let date = DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now);
-        let message = commit.message().unwrap_or("").trim().to_string();
+        let message = commit_obj.message.to_str_lossy().into_owned();
 
         let changes = Self::extract_changes(repo, commit)?;
 
@@ -526,189 +625,136 @@ impl GitRepository {
         })
     }
 
-    fn extract_changes(repo: &Repository, commit: &Git2Commit) -> Result<Vec<FileChange>> {
-        let commit_tree = commit.tree().context("Failed to get commit tree")?;
-        let parent_tree = if commit.parent_count() > 0 {
-            match commit.parent(0).and_then(|p| p.tree()) {
-                Ok(tree) => Some(tree),
-                Err(_) => return Ok(Vec::new()), // Skip if parent tree unavailable
-            }
+    fn extract_changes(repo: &Repository, commit: &gix::Commit) -> Result<Vec<FileChange>> {
+        let commit_obj = commit.decode()?;
+        let commit_tree_id = commit_obj.tree();
+        let commit_tree = repo.find_tree(commit_tree_id)?;
+
+        let parent_tree = if let Some(parent_id) = commit_obj.parents().next() {
+            repo.find_commit(parent_id)?.tree()?
         } else {
-            None
-        };
-
-        let mut diff_opts = DiffOptions::new();
-        diff_opts.context_lines(3);
-
-        let diff = match repo.diff_tree_to_tree(
-            parent_tree.as_ref(),
-            Some(&commit_tree),
-            Some(&mut diff_opts),
-        ) {
-            Ok(d) => d,
-            Err(_) => return Ok(Vec::new()), // Skip if diff fails
+            repo.empty_tree()
         };
 
         let mut changes = Vec::new();
+        let algo = repo.diff_algorithm()?;
+        parent_tree
+            .changes()?
+            .for_each_to_obtain_tree(&commit_tree, |change| {
+                if change.entry_mode().is_tree() {
+                    return anyhow::Ok(gix::object::tree::diff::Action::Continue);
+                }
+                let path = change.location().to_str_lossy().into_owned();
+                let status = FileStatus::from_change(&change);
 
-        for i in 0..diff.deltas().len() {
-            let delta = diff.get_delta(i).unwrap();
-            let status = FileStatus::from(delta.status());
-
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .and_then(|p| p.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            let old_path = if delta.status() == Delta::Renamed {
-                delta
-                    .old_file()
-                    .path()
-                    .and_then(|p| p.to_str())
-                    .map(String::from)
-            } else {
-                None
-            };
-
-            let is_binary = delta.new_file().is_binary() || delta.old_file().is_binary();
-
-            let old_content = if let Some(parent_tree) = parent_tree.as_ref() {
-                if let Some(old_file_path) = delta.old_file().path() {
-                    parent_tree
-                        .get_path(old_file_path)
-                        .ok()
-                        .and_then(|entry| repo.find_blob(entry.id()).ok())
-                        .and_then(|blob| {
-                            if !blob.is_binary() && blob.size() <= MAX_BLOB_SIZE {
-                                Some(String::from_utf8_lossy(blob.content()).to_string())
-                            } else {
-                                None
-                            }
-                        })
+                let old_path = if let Change::Rewrite {
+                    source_location, ..
+                } = &change
+                {
+                    Some(source_location)
                 } else {
                     None
-                }
-            } else {
-                None
-            };
-
-            let new_content = if let Some(new_file_path) = delta.new_file().path() {
-                commit_tree
-                    .get_path(new_file_path)
-                    .ok()
-                    .and_then(|entry| repo.find_blob(entry.id()).ok())
-                    .and_then(|blob| {
-                        if !blob.is_binary() && blob.size() <= MAX_BLOB_SIZE {
-                            Some(String::from_utf8_lossy(blob.content()).to_string())
-                        } else {
-                            None
-                        }
-                    })
-            } else {
-                None
-            };
-
-            let mut hunks = Vec::new();
-            let mut diff_text = String::new();
-
-            if let Ok(Some(mut patch)) = git2::Patch::from_diff(&diff, i) {
-                if let Ok(patch_str) = patch.to_buf() {
-                    diff_text = String::from_utf8_lossy(patch_str.as_ref()).to_string();
-                }
-
-                if !is_binary {
-                    for hunk_idx in 0..patch.num_hunks() {
-                        if let Ok((hunk, _hunk_lines)) = patch.hunk(hunk_idx) {
-                            let mut lines = Vec::new();
-                            let num_lines = patch.num_lines_in_hunk(hunk_idx).unwrap_or(0);
-
-                            let mut old_line_no = hunk.old_start() as usize;
-                            let mut new_line_no = hunk.new_start() as usize;
-
-                            for line_idx in 0..num_lines {
-                                if let Ok(line) = patch.line_in_hunk(hunk_idx, line_idx) {
-                                    let content =
-                                        String::from_utf8_lossy(line.content()).to_string();
-                                    let origin = line.origin();
-
-                                    let (change_type, old_no, new_no) = match origin {
-                                        '+' => {
-                                            let no = new_line_no;
-                                            new_line_no += 1;
-                                            (LineChangeType::Addition, None, Some(no))
-                                        }
-                                        '-' => {
-                                            let no = old_line_no;
-                                            old_line_no += 1;
-                                            (LineChangeType::Deletion, Some(no), None)
-                                        }
-                                        _ => {
-                                            let old_no = old_line_no;
-                                            let new_no = new_line_no;
-                                            old_line_no += 1;
-                                            new_line_no += 1;
-                                            (LineChangeType::Context, Some(old_no), Some(new_no))
-                                        }
-                                    };
-
-                                    lines.push(LineChange {
-                                        change_type,
-                                        content,
-                                        old_line_no: old_no,
-                                        new_line_no: new_no,
-                                    });
-                                }
-                            }
-
-                            hunks.push(DiffHunk {
-                                old_start: hunk.old_start() as usize,
-                                old_lines: hunk.old_lines() as usize,
-                                new_start: hunk.new_start() as usize,
-                                new_lines: hunk.new_lines() as usize,
-                                lines,
-                            });
-                        }
+                };
+                let (old_id, new_id, is_binary) = match &change {
+                    Change::Addition { id, .. } => {
+                        let oid: ObjectId = id.to_owned().into();
+                        (None, Some(oid), Self::is_blob_binary(repo, oid))
                     }
-                }
-            }
+                    Change::Deletion { id, .. } => {
+                        let oid: ObjectId = id.to_owned().into();
+                        (Some(oid), None, Self::is_blob_binary(repo, oid))
+                    }
+                    Change::Modification {
+                        previous_id: source_id,
+                        id,
+                        ..
+                    }
+                    | Change::Rewrite { source_id, id, .. } => {
+                        let old_oid: ObjectId = source_id.to_owned().into();
+                        let new_oid: ObjectId = id.to_owned().into();
+                        let old_binary = Self::is_blob_binary(repo, old_oid);
+                        let new_binary = Self::is_blob_binary(repo, new_oid);
+                        (Some(old_oid), Some(new_oid), old_binary || new_binary)
+                    }
+                };
 
-            // Calculate total changed lines (additions + deletions)
-            let total_changed_lines: usize = hunks
-                .iter()
-                .flat_map(|hunk| &hunk.lines)
-                .filter(|line| !matches!(line.change_type, LineChangeType::Context))
-                .count();
+                let old_content =
+                    old_id.and_then(|id| Self::get_blob_content(repo, id).ok().flatten());
+                let new_content =
+                    new_id.and_then(|id| Self::get_blob_content(repo, id).ok().flatten());
 
-            // Determine exclusion reason
-            let (is_excluded, exclusion_reason) = if should_exclude_file(&path) {
-                (true, Some("lock/generated file".to_string()))
-            } else if total_changed_lines > MAX_CHANGE_LINES {
-                (
-                    true,
-                    Some(format!("too many changes ({} lines)", total_changed_lines)),
-                )
-            } else {
-                (false, None)
-            };
+                let hunks = if !is_binary {
+                    Self::generate_hunks(old_content.as_deref(), new_content.as_deref(), algo)
+                } else {
+                    Vec::new()
+                };
 
-            changes.push(FileChange {
-                path,
-                old_path,
-                status,
-                is_binary,
-                is_excluded,
-                exclusion_reason,
-                old_content,
-                new_content,
-                hunks,
-                diff: diff_text,
-            });
-        }
+                // Calculate total changed lines
+                let total_changed_lines: usize = hunks.iter().flat_map(|hunk| &hunk.lines).count();
+
+                // Determine exclusion reason
+                let (is_excluded, exclusion_reason) = if should_exclude_file(&path) {
+                    (true, Some("lock/generated file".to_string()))
+                } else if total_changed_lines > MAX_CHANGE_LINES {
+                    (
+                        true,
+                        Some(format!("too many changes ({} lines)", total_changed_lines)),
+                    )
+                } else {
+                    (false, None)
+                };
+
+                changes.push(FileChange {
+                    path,
+                    old_path: old_path.map(|path| path.to_str_lossy().into_owned()),
+                    status,
+                    is_binary,
+                    is_excluded,
+                    exclusion_reason,
+                    old_content,
+                    new_content,
+                    hunks,
+                    diff: String::new(),
+                });
+
+                anyhow::Ok(gix::object::tree::diff::Action::Continue)
+            })?;
 
         Ok(changes)
+    }
+
+    fn is_blob_binary(repo: &Repository, id: ObjectId) -> bool {
+        repo.find_blob(id)
+            .ok()
+            .map(|blob| {
+                let data = blob.data.as_slice();
+                data.len() > MAX_BLOB_SIZE || data.contains(&0)
+            })
+            .unwrap_or(false)
+    }
+
+    fn get_blob_content(repo: &Repository, id: ObjectId) -> Result<Option<String>> {
+        let blob = repo.find_blob(id)?;
+        let data = blob.data.as_slice();
+
+        if data.len() > MAX_BLOB_SIZE || data.contains(&0) {
+            Ok(None)
+        } else {
+            Ok(Some(String::from_utf8_lossy(data).to_string()))
+        }
+    }
+
+    fn generate_hunks(
+        old_content: Option<&str>,
+        new_content: Option<&str>,
+        algo: Algorithm,
+    ) -> Vec<DiffHunk> {
+        let old_str = old_content.unwrap_or("");
+        let new_str = new_content.unwrap_or("");
+
+        let input = gix::diff::blob::intern::InternedInput::new(old_str, new_str);
+        let collector = DiffHunkCollector::new(&input);
+        gix::diff::blob::diff(algo, &input, collector)
     }
 }
 
@@ -832,5 +878,611 @@ mod tests {
     fn test_invalid_pattern() {
         let patterns = vec!["[invalid".to_string()];
         assert!(init_ignore_patterns(&patterns).is_err());
+    }
+
+    mod generate_hunks {
+        use crate::git::GitRepository;
+        use gix::diff::blob::Algorithm;
+
+        #[test]
+        fn test_generate_hunks_simple_addition() {
+            let old = "";
+            let new = "line 1\nline 2\nline 3\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 0,
+                    new_start: 1,
+                    new_lines: 3,
+                    lines: [
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 1",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                1,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 3",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                3,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_simple_deletion() {
+            let old = "line 1\nline 2\nline 3\n";
+            let new = "";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 3,
+                    new_start: 1,
+                    new_lines: 0,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 1",
+                            old_line_no: Some(
+                                1,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 3",
+                            old_line_no: Some(
+                                3,
+                            ),
+                            new_line_no: None,
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_simple_modification() {
+            let old = "line 1\nline 2\nline 3\n";
+            let new = "line 1\nmodified line 2\nline 3\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "modified line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_multiple_changes() {
+            let old = "line 1\nline 2\nline 3\nline 4\nline 5\n";
+            let new = "line 1\nmodified line 2\nline 3\nline 4\nnew line 5\nline 6\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "modified line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+                DiffHunk {
+                    old_start: 5,
+                    old_lines: 1,
+                    new_start: 5,
+                    new_lines: 2,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 5",
+                            old_line_no: Some(
+                                5,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "new line 5",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                5,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 6",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                6,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_addition_in_middle() {
+            let old = "line 1\nline 2\nline 3\n";
+            let new = "line 1\nline 2\ninserted line\nline 3\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 3,
+                    old_lines: 0,
+                    new_start: 3,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Addition,
+                            content: "inserted line",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                3,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_deletion_in_middle() {
+            let old = "line 1\nline 2\nline 3\nline 4\n";
+            let new = "line 1\nline 4\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 2,
+                    new_start: 2,
+                    new_lines: 0,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 3",
+                            old_line_no: Some(
+                                3,
+                            ),
+                            new_line_no: None,
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_both_empty() {
+            let old = "";
+            let new = "";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @"[]");
+        }
+
+        #[test]
+        fn test_generate_hunks_none_old() {
+            let new = "line 1\nline 2\n";
+            let hunks = GitRepository::generate_hunks(None, Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 0,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: [
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 1",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                1,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_none_new() {
+            let old = "line 1\nline 2\n";
+            let hunks = GitRepository::generate_hunks(Some(old), None, Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 2,
+                    new_start: 1,
+                    new_lines: 0,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 1",
+                            old_line_no: Some(
+                                1,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_both_none() {
+            let hunks = GitRepository::generate_hunks(None, None, Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @"[]");
+        }
+
+        #[test]
+        fn test_generate_hunks_replace_all() {
+            let old = "old line 1\nold line 2\nold line 3\n";
+            let new = "new line 1\nnew line 2\nnew line 3\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 3,
+                    new_start: 1,
+                    new_lines: 3,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "old line 1",
+                            old_line_no: Some(
+                                1,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "old line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Deletion,
+                            content: "old line 3",
+                            old_line_no: Some(
+                                3,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "new line 1",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                1,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "new line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "new line 3",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                3,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_mixed_operations() {
+            let old = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\n";
+            let new = "line 1\nmodified 2\nline 3\nline 5\nline 6\nnew line 7\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "modified 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+                DiffHunk {
+                    old_start: 4,
+                    old_lines: 1,
+                    new_start: 4,
+                    new_lines: 0,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 4",
+                            old_line_no: Some(
+                                4,
+                            ),
+                            new_line_no: None,
+                        },
+                    ],
+                },
+                DiffHunk {
+                    old_start: 7,
+                    old_lines: 0,
+                    new_start: 6,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Addition,
+                            content: "new line 7",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                6,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_whitespace_changes() {
+            let old = "line 1\nline 2\n";
+            let new = "line 1\n  line 2\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "  line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
+
+        #[test]
+        fn test_generate_hunks_real_code_example() {
+            let old = r#"fn main() {
+    println!("Hello, world!");
+}
+"#;
+            let new = r#"fn main() {
+    let name = "World";
+    println!("Hello, {}!", name);
+}
+"#;
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Myers);
+
+            insta::assert_debug_snapshot!(hunks, @r###"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 2,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "    println!(\"Hello, world!\");",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "    let name = \"World\";",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "    println!(\"Hello, {}!\", name);",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                3,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "###);
+        }
+
+        #[test]
+        fn test_generate_hunks_histogram_algorithm() {
+            let old = "line 1\nline 2\nline 3\n";
+            let new = "line 1\nmodified line 2\nline 3\n";
+            let hunks = GitRepository::generate_hunks(Some(old), Some(new), Algorithm::Histogram);
+
+            insta::assert_debug_snapshot!(hunks, @r#"
+            [
+                DiffHunk {
+                    old_start: 2,
+                    old_lines: 1,
+                    new_start: 2,
+                    new_lines: 1,
+                    lines: [
+                        LineChange {
+                            change_type: Deletion,
+                            content: "line 2",
+                            old_line_no: Some(
+                                2,
+                            ),
+                            new_line_no: None,
+                        },
+                        LineChange {
+                            change_type: Addition,
+                            content: "modified line 2",
+                            old_line_no: None,
+                            new_line_no: Some(
+                                2,
+                            ),
+                        },
+                    ],
+                },
+            ]
+            "#);
+        }
     }
 }

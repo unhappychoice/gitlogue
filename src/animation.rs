@@ -694,20 +694,6 @@ impl AnimationEngine {
                         duration_ms: (self.speed_ms as f64 * INSERT_LINE_PAUSE) as u64,
                     });
                 }
-                LineChangeType::Context => {
-                    // Move cursor to next line if needed
-                    if buffer_line != cursor_line {
-                        self.steps.push(AnimationStep::MoveCursor {
-                            line: buffer_line,
-                            col: 0,
-                        });
-                        self.steps.push(AnimationStep::Pause {
-                            duration_ms: (self.speed_ms as f64 * CURSOR_MOVE_PAUSE) as u64,
-                        });
-                    }
-                    cursor_line = buffer_line;
-                    buffer_line += 1; // Move to next line
-                }
             }
         }
 
