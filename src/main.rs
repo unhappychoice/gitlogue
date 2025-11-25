@@ -96,6 +96,11 @@ pub struct Args {
         short = 'a',
         long,
         value_name = "PATTERN",
+        value_parser = |s: &str| if s.trim().is_empty() {
+            Err("Author pattern cannot be empty".to_string())
+        } else {
+            Ok(s.to_string())
+        },
         help = "Filter commits by author name or email (partial match, case-insensitive)"
     )]
     pub author: Option<String>,
