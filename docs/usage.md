@@ -429,35 +429,19 @@ This will generate `gitlogue-demo.gif` with your session automatically recorded 
 
 ### fzf Integration
 
-Integrate gitlogue with [fzf](https://github.com/junegunn/fzf) for interactive commit selection:
-
-#### Basic Commit Browser
-
-```bash
-# Select and view a commit with fzf
-git log --oneline --color=always | \
-  fzf --ansi --preview 'gitlogue --commit {1}' \
-      --preview-window=right:70%
-```
-
-#### Interactive Commit Viewer
+Integrate gitlogue with [fzf](https://github.com/junegunn/fzf) for interactive commit selection.
 
 Add this function to your `~/.bashrc` or `~/.zshrc`:
 
 ```bash
-# Browse commits with gitlogue preview
+# Browse commits and launch gitlogue on selection
 glf() {
-  local commit
-  commit=$(git log --oneline --color=always "$@" |
-           fzf --ansi \
-               --no-sort \
-               --preview 'git show --color=always {1}' \
-               --preview-window=right:60% \
-               --bind 'ctrl-g:execute(gitlogue --commit {1})')
-
-  if [ -n "$commit" ]; then
-    gitlogue --commit $(echo "$commit" | awk '{print $1}')
-  fi
+  git log --oneline --color=always "$@" | \
+    fzf --ansi \
+        --no-sort \
+        --preview 'git show --stat --color=always {1}' \
+        --preview-window=right:60% \
+        --bind 'enter:become(gitlogue --commit {1})'
 }
 ```
 
@@ -471,7 +455,7 @@ glf
 glf --author="Alice"
 
 # Browse commits in date range
-glf --since="2 weeks ago"
+glf --after="2 weeks ago"
 ```
 
 #### Advanced fzf Menu
@@ -490,12 +474,17 @@ gitlogue-menu() {
       gitlogue
       ;;
     "Specific commit")
-      local commit=$(git log --oneline | fzf --prompt="Select commit> " | awk '{print $1}')
-      [ -n "$commit" ] && gitlogue --commit "$commit"
+      git log --oneline | \
+        fzf --prompt="Select commit> " \
+            --bind 'enter:become(gitlogue --commit {1})'
       ;;
     "By author")
       local author=$(git log --format='%an' | sort -u | fzf --prompt="Select author> ")
-      [ -n "$author" ] && gitlogue
+      [ -n "$author" ] && gitlogue --author "$author"
+      ;;
+    "By date range")
+      local after=$(echo -e "1 day ago\n1 week ago\n2 weeks ago\n1 month ago" | fzf --prompt="After> ")
+      [ -n "$after" ] && gitlogue --after "$after"
       ;;
     "Theme selection")
       local theme=$(gitlogue theme list | tail -n +2 | sed 's/^  - //' | fzf --prompt="Select theme> ")
