@@ -437,11 +437,11 @@ Type "cd my-project"
 Enter
 Sleep 500ms
 
-Type "gitlogue --theme dracula --commit abc123 && echo 'Finished'"
+Type "gitlogue --theme dracula --commit abc123; echo FINISHED"
 Enter
 
-# Wait for gitlogue to complete
-Wait /Finished/
+# Wait for FINISHED to appear anywhere on screen (120s timeout for large commits)
+Wait+Screen@120s /FINISHED/
 Sleep 1s
 ```
 
@@ -461,12 +461,14 @@ Add this function to your `~/.bashrc` or `~/.zshrc`:
 ```bash
 # Browse commits and launch gitlogue on selection
 glf() {
-  git log --oneline --color=always "$@" | \
+  local commit
+  commit=$(git log --oneline --color=always "$@" | \
     fzf --ansi \
         --no-sort \
         --preview 'git show --stat --color=always {1}' \
-        --preview-window=right:60% \
-        --bind 'enter:become(gitlogue --commit {1})'
+        --preview-window=right:60% | \
+    awk '{print $1}')
+  [ -n "$commit" ] && gitlogue --commit "$commit"
 }
 ```
 
@@ -499,9 +501,8 @@ gitlogue-menu() {
       gitlogue
       ;;
     "Specific commit")
-      git log --oneline | \
-        fzf --prompt="Select commit> " \
-            --bind 'enter:become(gitlogue --commit {1})'
+      local commit=$(git log --oneline | fzf --prompt="Select commit> " | awk '{print $1}')
+      [ -n "$commit" ] && gitlogue --commit "$commit"
       ;;
     "By author")
       local author=$(git log --format='%an' | sort -u | fzf --prompt="Select author> ")
