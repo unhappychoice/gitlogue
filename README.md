@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/unhappychoice/gitlogue/main/install
 ### Using Homebrew
 
 ```bash
-brew install unhappychoice/tap/gitlogue
+brew install gitlogue
 ```
 
 ### Using Cargo
