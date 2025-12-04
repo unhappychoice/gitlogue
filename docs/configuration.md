@@ -48,6 +48,10 @@ loop = false
 # Ignore patterns (gitignore syntax)
 # Examples: ["*.ipynb", "poetry.lock", "docs/api/**"]
 ignore_patterns = []
+
+# Speed rules for different file types (pattern:milliseconds)
+# Examples: ["*.java:50", "*.xml:5", "*.rs:30"]
+speed_rules = []
 ```
 
 ## Configuration Options
@@ -150,13 +154,44 @@ Note: These patterns are additive with CLI `--ignore` flags and `--ignore-file` 
 2. `--ignore-file` patterns
 3. CLI `--ignore` flags (highest priority)
 
+### `speed_rules`
+
+List of file-specific typing speed rules. Each rule specifies a glob pattern and speed in milliseconds.
+
+- **Type**: Array of strings
+- **Default**: `[]` (empty array)
+- **Format**: `"PATTERN:MILLISECONDS"`
+- **Example**: `speed_rules = ["*.java:50", "*.xml:5"]`
+
+The first matching rule wins. Files that don't match any rule use the base `speed` setting.
+
+Common use cases:
+```toml
+# Slow down for important source files, speed through configs
+speed_rules = [
+    "*.java:50",     # 50ms per char for Java (slower, more readable)
+    "*.rs:40",       # 40ms per char for Rust
+    "*.xml:5",       # 5ms per char for XML (fast)
+    "*.json:5",      # 5ms per char for JSON (fast)
+    "*.yaml:10",     # 10ms per char for YAML
+]
+
+# Focus on specific directories
+speed_rules = [
+    "src/**/*.ts:30",    # Slower for source TypeScript
+    "tests/**/*.ts:10",  # Faster for test files
+]
+```
+
+Note: CLI `--speed-rule` flags take priority over config file rules. Rules are evaluated in order (CLI first, then config).
+
 ## Configuration Priority
 
 Settings are applied in the following order (highest priority first):
 
 1. **CLI arguments** - Command-line flags override everything
    ```bash
-   gitlogue --theme nord --speed 20 --background=false --order asc --loop
+   gitlogue --theme nord --speed 20 --background=false --order asc --loop --speed-rule "*.rs:50"
    ```
 
 2. **Configuration file** - Values from `~/.config/gitlogue/config.toml`
@@ -247,6 +282,8 @@ speed = 30
 background = true
 order = "random"
 loop = false
+ignore_patterns = []
+speed_rules = []
 EOF
 ```
 

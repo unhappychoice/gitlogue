@@ -120,6 +120,9 @@ gitlogue --theme dracula
 # Adjust typing speed (ms per character)
 gitlogue --speed 20
 
+# Set different speeds for different file types
+gitlogue --speed-rule "*.java:50" --speed-rule "*.xml:5"
+
 # Ignore specific file patterns (e.g., notebooks, lock files)
 gitlogue --ignore "*.ipynb" --ignore "poetry.lock"
 

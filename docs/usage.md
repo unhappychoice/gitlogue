@@ -158,6 +158,31 @@ gitlogue --speed 100  # Very slow typing
 
 Lower values = faster typing. Recommended range: 10-100ms.
 
+### `--speed-rule <PATTERN:MS>`
+
+Set different typing speeds for files matching specific patterns. Can be specified multiple times.
+
+```bash
+# Slow down for Java files, speed through XML
+gitlogue --speed-rule "*.java:50" --speed-rule "*.xml:5"
+
+# Different speeds for source vs config files
+gitlogue --speed-rule "*.rs:40" --speed-rule "*.toml:10" --speed-rule "*.json:5"
+
+# Combined with base speed (unmatched files use -s value)
+gitlogue --speed-rule "*.ts:30" -s 20
+```
+
+Format: `PATTERN:MILLISECONDS`
+- Pattern uses glob syntax (e.g., `*.java`, `src/**/*.rs`)
+- First matching rule wins
+- Unmatched files use the base `--speed` value (default: 30ms)
+
+Use cases:
+- Slow down for important source files you want to showcase
+- Speed through boilerplate like XML, JSON, or config files
+- Focus attention on specific directories
+
 ### `--order <ORDER>`
 
 Set the commit playback order.
