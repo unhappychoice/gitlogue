@@ -168,6 +168,7 @@ Bash, C, C#, C++, Clojure, CSS, Dart, Elixir, Erlang, Go, Haskell, HTML, Java, J
 - [**cbonsai**](https://gitlab.com/jallbrit/cbonsai) - Grow beautiful bonsai trees in your terminal
 - [**asciiquarium**](https://github.com/cmatsuoka/asciiquarium) - Enjoy the mysteries of the sea from your terminal
 - [**cmatrix**](https://github.com/abishekvashok/cmatrix) - The Matrix screensaver effect for your terminal
+- [**cxxmatrix**](https://github.com/akinomyoga/cxxmatrix) - Collection of terminal screensavers in C++ (Matrix, Game of Life, etc)
 - [**pipes.sh**](https://github.com/pipeseroni/pipes.sh) - Animated pipes flowing through your terminal
 
 ## Contributing
