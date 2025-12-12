@@ -62,12 +62,13 @@ See the [Installation Guide](docs/installation.md) for more options and troubles
 
 ## Features
 
-🎬 **Commit Replay as Animation** — Realistic typing, cursor movement, deletions, and file operations  
-🎨 **Tree-sitter Syntax Highlighting** — 29 languages supported  
-🌳 **Project File Tree** — Directory structure with change statistics  
-🖥️ **Screensaver Mode** — Endless random commit playback  
-🎭 **Themes** — 9 built-in themes + full customization support  
-⚡ **Fast & Lightweight** — Built with Rust for performance  
+🎬 **Commit Replay as Animation** — Realistic typing, cursor movement, deletions, and file operations
+🔍 **Working Tree Diff View** — Visualize staged/unstaged changes before committing
+🎨 **Tree-sitter Syntax Highlighting** — 29 languages supported
+🌳 **Project File Tree** — Directory structure with change statistics
+🖥️ **Screensaver Mode** — Endless random commit playback
+🎭 **Themes** — 9 built-in themes + full customization support
+⚡ **Fast & Lightweight** — Built with Rust for performance
 
 ## Usage
 
@@ -105,6 +106,12 @@ gitlogue --commit abc123 --loop
 
 # Loop through a commit range
 gitlogue --commit HEAD~10..HEAD --loop
+
+# View staged changes (default)
+gitlogue diff
+
+# View unstaged changes instead
+gitlogue diff --unstaged
 
 # Filter commits by author or email (case-insensitive partial match)
 gitlogue --author "john"
