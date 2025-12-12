@@ -25,23 +25,32 @@ impl StatusBarPane {
             .padding(Padding::vertical(1));
 
         let status_text = if let Some(meta) = metadata {
-            let hash_short = &meta.hash[..7.min(meta.hash.len())];
-            let date_str = meta.date.format("%Y-%m-%d %H:%M:%S").to_string();
+            let is_working_tree = meta.hash == "working-tree";
+            let hash_display = if is_working_tree {
+                "working"
+            } else {
+                &meta.hash[..7.min(meta.hash.len())]
+            };
 
             let mut lines = vec![
                 Line::from(vec![
                     Span::raw("hash: "),
-                    Span::styled(hash_short, Style::default().fg(theme.status_hash)),
+                    Span::styled(hash_display, Style::default().fg(theme.status_hash)),
                 ]),
                 Line::from(vec![
                     Span::raw("author: "),
                     Span::styled(&meta.author, Style::default().fg(theme.status_author)),
                 ]),
-                Line::from(vec![
+            ];
+
+            // Only show date for actual commits (not working tree)
+            if !is_working_tree {
+                let date_str = meta.date.format("%Y-%m-%d %H:%M:%S").to_string();
+                lines.push(Line::from(vec![
                     Span::raw("date: "),
                     Span::styled(date_str, Style::default().fg(theme.status_date)),
-                ]),
-            ];
+                ]));
+            }
 
             // Add commit message lines (skip empty lines)
             for msg_line in meta.message.lines() {

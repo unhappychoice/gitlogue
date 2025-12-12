@@ -20,7 +20,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::animation::{AnimationEngine, SpeedRule};
-use crate::git::{CommitMetadata, GitRepository};
+use crate::git::{CommitMetadata, DiffMode, GitRepository};
 use crate::panes::{EditorPane, FileTreePane, StatusBarPane, TerminalPane};
 use crate::theme::Theme;
 use crate::PlaybackOrder;
@@ -48,6 +48,7 @@ pub struct UI<'a> {
     loop_playback: bool,
     commit_spec: Option<String>,
     is_range_mode: bool,
+    diff_mode: Option<DiffMode>,
 }
 
 impl<'a> UI<'a> {
@@ -84,7 +85,13 @@ impl<'a> UI<'a> {
             loop_playback,
             commit_spec,
             is_range_mode,
+            diff_mode: None,
         }
+    }
+
+    /// Sets the diff mode for working tree diff playback.
+    pub fn set_diff_mode(&mut self, mode: Option<DiffMode>) {
+        self.diff_mode = mode;
     }
 
     fn setup_signal_handler(should_exit: Arc<AtomicBool>) {
@@ -193,7 +200,23 @@ impl<'a> UI<'a> {
                 }
                 UIState::WaitingForNext { resume_at } => {
                     if Instant::now() >= resume_at {
-                        if let Some(repo) = self.repo {
+                        // Handle diff mode looping
+                        if let Some(diff_mode) = self.diff_mode {
+                            if let Some(repo) = self.repo {
+                                // Refresh the working tree diff
+                                match repo.get_working_tree_diff(diff_mode) {
+                                    Ok(metadata) if !metadata.changes.is_empty() => {
+                                        self.load_commit(metadata);
+                                    }
+                                    _ => {
+                                        // No more changes, finish
+                                        self.state = UIState::Finished;
+                                    }
+                                }
+                            } else {
+                                self.state = UIState::Finished;
+                            }
+                        } else if let Some(repo) = self.repo {
                             let result = if self.is_range_mode {
                                 match self.order {
                                     PlaybackOrder::Random => repo.random_range_commit(),

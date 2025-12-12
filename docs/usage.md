@@ -7,6 +7,8 @@ This guide covers all the features and options available in gitlogue.
 - [Basic Usage](#basic-usage)
 - [Command-Line Options](#command-line-options)
 - [Subcommands](#subcommands)
+  - [theme list](#theme-list)
+  - [diff](#diff)
 - [Configuration File](#configuration-file)
 - [Keyboard Controls](#keyboard-controls)
 - [Use Cases](#use-cases)
@@ -307,6 +309,53 @@ This displays:
 - Theme name
 - Brief description
 - Preview of the color scheme (coming soon)
+
+### `diff`
+
+View staged working tree changes with animations. This is useful for visualizing your changes before committing.
+
+```bash
+# View staged changes (default)
+gitlogue diff
+
+# View unstaged changes instead
+gitlogue diff --unstaged
+```
+
+#### Options
+
+| Option | Description |
+|--------|-------------|
+| `--unstaged` | Show unstaged changes instead of staged |
+| `-s, --speed <MS>` | Typing speed in milliseconds per character |
+| `-t, --theme <NAME>` | Theme to use |
+| `--background[=BOOL]` | Show background colors (use `--background=false` for transparent) |
+| `--loop[=BOOL]` | Loop the animation continuously |
+| `-i, --ignore <PATTERN>` | Ignore files matching pattern (can be specified multiple times) |
+| `--speed-rule <PATTERN:MS>` | Set typing speed for files matching pattern |
+
+#### Examples
+
+```bash
+# Review staged changes before committing
+gitlogue diff
+
+# View unstaged work in progress
+gitlogue diff --unstaged --theme dracula
+
+# Loop through staged changes for a presentation
+gitlogue diff --loop --speed 20
+
+# Focus on source files, ignore generated content
+gitlogue diff -i "*.lock" -i "dist/**"
+```
+
+#### Use Cases
+
+- **Pre-commit review**: Visualize exactly what you're about to commit
+- **Code presentation**: Show staged changes to teammates
+- **Learning**: See your changes animated with syntax highlighting
+- **Debugging**: Trace through modifications to understand what changed
 
 ## Keyboard Controls
 

@@ -11,7 +11,7 @@ use animation::SpeedRule;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
-use git::GitRepository;
+use git::{DiffMode, GitRepository};
 use std::path::{Path, PathBuf};
 use theme::Theme;
 use ui::UI;
@@ -156,6 +156,38 @@ pub enum Commands {
         #[command(subcommand)]
         command: ThemeCommands,
     },
+    /// Show staged working tree changes (use --unstaged for unstaged changes)
+    Diff {
+        #[arg(long, help = "Show unstaged changes instead of staged")]
+        unstaged: bool,
+
+        #[arg(
+            short,
+            long,
+            value_name = "MS",
+            help = "Typing speed in milliseconds per character"
+        )]
+        speed: Option<u64>,
+
+        #[arg(short, long, value_name = "NAME", help = "Theme to use")]
+        theme: Option<String>,
+
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", value_name = "BOOL",
+              help = "Show background colors (use --background=false for transparent)")]
+        background: Option<bool>,
+
+        #[arg(long = "loop", num_args = 0..=1, default_missing_value = "true", value_name = "BOOL",
+              help = "Loop the animation continuously")]
+        loop_playback: Option<bool>,
+
+        #[arg(short = 'i', long = "ignore", value_name = "PATTERN", action = clap::ArgAction::Append,
+              help = "Ignore files matching pattern (gitignore syntax)")]
+        ignore: Vec<String>,
+
+        #[arg(long = "speed-rule", value_name = "PATTERN:MS", action = clap::ArgAction::Append,
+              help = "Set typing speed for files matching pattern (e.g., '*.java:50')")]
+        speed_rule: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -220,7 +252,7 @@ fn main() -> Result<()> {
     }
 
     // Handle subcommands
-    if let Some(command) = args.command {
+    if let Some(ref command) = args.command {
         match command {
             Commands::Theme { command } => match command {
                 ThemeCommands::List => {
@@ -232,7 +264,7 @@ fn main() -> Result<()> {
                 }
                 ThemeCommands::Set { name } => {
                     // Validate theme exists
-                    Theme::load(&name)?;
+                    Theme::load(name)?;
 
                     // Load existing config or create new one
                     let mut config = Config::load().unwrap_or_default();
@@ -244,6 +276,76 @@ fn main() -> Result<()> {
                     return Ok(());
                 }
             },
+            Commands::Diff {
+                unstaged,
+                speed,
+                theme,
+                background,
+                loop_playback,
+                ignore,
+                speed_rule,
+            } => {
+                let repo_path = args.validate()?;
+                let repo = GitRepository::open(&repo_path)?;
+
+                let mode = if *unstaged {
+                    DiffMode::Unstaged
+                } else {
+                    DiffMode::Staged
+                };
+
+                let metadata = repo.get_working_tree_diff(mode)?;
+
+                if metadata.changes.is_empty() {
+                    println!("No changes to display");
+                    return Ok(());
+                }
+
+                let config = Config::load()?;
+
+                let mut patterns = config.ignore_patterns.clone();
+                patterns.extend(ignore.clone());
+                git::init_ignore_patterns(&patterns).ok();
+
+                let theme_name = theme.as_deref().unwrap_or(&config.theme);
+                let speed = speed.unwrap_or(config.speed);
+                let background = background.unwrap_or(config.background);
+                let loop_playback = loop_playback.unwrap_or(false);
+
+                let mut theme = Theme::load(theme_name)?;
+                if !background {
+                    theme = theme.with_transparent_background();
+                }
+
+                let speed_rules: Vec<SpeedRule> = speed_rule
+                    .iter()
+                    .chain(config.speed_rules.iter())
+                    .filter_map(|s| {
+                        SpeedRule::parse(s).or_else(|| {
+                            eprintln!("Warning: Invalid speed rule '{}', skipping", s);
+                            None
+                        })
+                    })
+                    .collect();
+
+                // Create UI - pass repo ref only if looping (to refresh diff)
+                let repo_ref = if loop_playback { Some(&repo) } else { None };
+                let mut ui = UI::new(
+                    speed,
+                    repo_ref,
+                    theme,
+                    PlaybackOrder::Asc,
+                    loop_playback,
+                    None,
+                    false,
+                    speed_rules,
+                );
+                ui.set_diff_mode(Some(mode));
+                ui.load_commit(metadata);
+                ui.run()?;
+
+                return Ok(());
+            }
         }
     }
 

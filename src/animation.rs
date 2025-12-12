@@ -354,40 +354,63 @@ impl AnimationEngine {
         self.last_update = Instant::now();
         self.pause_until = None;
 
-        // Time travel to commit date
-        let parent_hash = format!("{}^", &metadata.hash[..7]);
-        let datetime_str = metadata.date.format("%Y-%m-%d %H:%M:%S").to_string();
-        self.add_terminal_command(&format!("time-travel {}", datetime_str));
-        self.steps.push(AnimationStep::Pause {
-            multiplier: CHECKOUT_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "⚡ Initializing temporal displacement field...".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: CHECKOUT_OUTPUT_PAUSE * 0.5,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "✨ Warping through spacetime...".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: CHECKOUT_OUTPUT_PAUSE * 0.5,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: format!("🕰️  Arrived at {}", datetime_str),
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: format!(
-                "📍 Location: commit {} by {}",
-                &metadata.hash[..7],
-                metadata.author
-            ),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: CHECKOUT_OUTPUT_PAUSE,
-        });
+        // Check if this is a working tree diff (not a real commit)
+        let is_working_tree = metadata.hash == "working-tree";
 
-        // Apply new metadata after time-travel animation
+        if is_working_tree {
+            // Simplified intro for working tree diffs
+            self.add_terminal_command("git diff --stat");
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!("📝 {}", metadata.message),
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!(
+                    "📁 {} file{} changed",
+                    metadata.changes.len(),
+                    if metadata.changes.len() == 1 { "" } else { "s" }
+                ),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_OUTPUT_PAUSE,
+            });
+        } else {
+            // Time travel to commit date
+            let datetime_str = metadata.date.format("%Y-%m-%d %H:%M:%S").to_string();
+            self.add_terminal_command(&format!("time-travel {}", datetime_str));
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "⚡ Initializing temporal displacement field...".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_OUTPUT_PAUSE * 0.5,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "✨ Warping through spacetime...".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_OUTPUT_PAUSE * 0.5,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!("🕰️  Arrived at {}", datetime_str),
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!(
+                    "📍 Location: commit {} by {}",
+                    &metadata.hash[..7],
+                    metadata.author
+                ),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: CHECKOUT_OUTPUT_PAUSE,
+            });
+        }
+
+        // Apply new metadata after intro animation
         self.steps.push(AnimationStep::ResetState);
 
         // Sort file changes to match FileTree display order (directory -> filename)
@@ -527,65 +550,74 @@ impl AnimationEngine {
             }
         }
 
-        // Git commit
-        let commit_message = metadata.message.lines().next().unwrap_or("Update");
-        self.add_terminal_command(&format!("git commit -m \"{}\"", commit_message));
-        self.steps.push(AnimationStep::Pause {
-            multiplier: GIT_COMMIT_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: format!("💾 [main {}] {}", &metadata.hash[..7], commit_message),
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: format!(
-                "📝 {} file{} changed - immortalized forever!",
-                metadata.changes.len(),
-                if metadata.changes.len() == 1 { "" } else { "s" }
-            ),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: COMMIT_OUTPUT_PAUSE,
-        });
+        // Skip git commit/push animation for working tree diffs
+        if is_working_tree {
+            // Just add a final pause for working tree mode
+            self.steps.push(AnimationStep::Pause {
+                multiplier: PUSH_FINAL_PAUSE,
+            });
+        } else {
+            // Git commit
+            let parent_hash = format!("{}^", &metadata.hash[..7]);
+            let commit_message = metadata.message.lines().next().unwrap_or("Update");
+            self.add_terminal_command(&format!("git commit -m \"{}\"", commit_message));
+            self.steps.push(AnimationStep::Pause {
+                multiplier: GIT_COMMIT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!("💾 [main {}] {}", &metadata.hash[..7], commit_message),
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!(
+                    "📝 {} file{} changed - immortalized forever!",
+                    metadata.changes.len(),
+                    if metadata.changes.len() == 1 { "" } else { "s" }
+                ),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: COMMIT_OUTPUT_PAUSE,
+            });
 
-        // Git push
-        self.add_terminal_command("git push origin main");
-        self.steps.push(AnimationStep::Pause {
-            multiplier: GIT_PUSH_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "🚀 Launching code into the cloud...".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: PUSH_OUTPUT_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "📦 Compressing digital dreams: 100% (5/5)".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: PUSH_OUTPUT_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "✍️  Signing with invisible ink: done.".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: GIT_PUSH_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: "📡 Beaming to origin/main via satellite...".to_string(),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: PUSH_OUTPUT_PAUSE,
-        });
-        self.steps.push(AnimationStep::TerminalOutput {
-            text: format!(
-                "   {}..{} ✨ SUCCESS",
-                &parent_hash[..7],
-                &metadata.hash[..7]
-            ),
-        });
-        self.steps.push(AnimationStep::Pause {
-            multiplier: PUSH_FINAL_PAUSE,
-        });
+            // Git push
+            self.add_terminal_command("git push origin main");
+            self.steps.push(AnimationStep::Pause {
+                multiplier: GIT_PUSH_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "🚀 Launching code into the cloud...".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: PUSH_OUTPUT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "📦 Compressing digital dreams: 100% (5/5)".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: PUSH_OUTPUT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "✍️  Signing with invisible ink: done.".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: GIT_PUSH_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: "📡 Beaming to origin/main via satellite...".to_string(),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: PUSH_OUTPUT_PAUSE,
+            });
+            self.steps.push(AnimationStep::TerminalOutput {
+                text: format!(
+                    "   {}..{} ✨ SUCCESS",
+                    &parent_hash[..7],
+                    &metadata.hash[..7]
+                ),
+            });
+            self.steps.push(AnimationStep::Pause {
+                multiplier: PUSH_FINAL_PAUSE,
+            });
+        }
 
         // Start with empty editor (no file opened yet)
         self.buffer = EditorBuffer::new();
