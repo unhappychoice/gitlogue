@@ -178,7 +178,7 @@ impl<'a> SelectableParagraph<'a> {
     }
 }
 
-impl<'a> Widget for SelectableParagraph<'a> {
+impl Widget for SelectableParagraph<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let area = match self.block {
             Some(ref block) => {

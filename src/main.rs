@@ -264,7 +264,7 @@ fn main() -> Result<()> {
                 }
                 ThemeCommands::Set { name } => {
                     // Validate theme exists
-                    Theme::load(&name)?;
+                    Theme::load(name)?;
 
                     // Load existing config or create new one
                     let mut config = Config::load().unwrap_or_default();
