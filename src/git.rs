@@ -22,8 +22,7 @@ const MAX_CHANGE_LINES: usize = 2000;
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum DiffMode {
     #[default]
-    All,      // Both staged and unstaged changes
-    Staged,   // Only staged changes (index vs HEAD)
+    Staged, // Only staged changes (index vs HEAD)
     Unstaged, // Only unstaged changes (workdir vs index)
 }
 
@@ -185,7 +184,7 @@ pub struct GitRepository {
     after_filter: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FileStatus {
     Added,
     Deleted,
@@ -778,33 +777,15 @@ impl GitRepository {
 
     /// Get working tree diff as CommitMetadata for animation
     ///
-    /// DiffMode::All - Both staged and unstaged changes
     /// DiffMode::Staged - Only staged changes (index vs HEAD)
     /// DiffMode::Unstaged - Only unstaged changes (workdir vs index)
     pub fn get_working_tree_diff(&self, mode: DiffMode) -> Result<CommitMetadata> {
         let changes = match mode {
-            DiffMode::All => {
-                let mut all_changes = self.extract_staged_changes()?;
-                let unstaged = self.extract_unstaged_changes()?;
-
-                // Merge changes, preferring staged version for same file
-                // (staged changes represent intentional user selections)
-                let staged_paths: std::collections::HashSet<_> =
-                    all_changes.iter().map(|c| c.path.clone()).collect();
-
-                for change in unstaged {
-                    if !staged_paths.contains(&change.path) {
-                        all_changes.push(change);
-                    }
-                }
-                all_changes
-            }
             DiffMode::Staged => self.extract_staged_changes()?,
             DiffMode::Unstaged => self.extract_unstaged_changes()?,
         };
 
         let message = match mode {
-            DiffMode::All => "Uncommitted changes",
             DiffMode::Staged => "Staged changes",
             DiffMode::Unstaged => "Unstaged changes",
         };
@@ -826,7 +807,10 @@ impl GitRepository {
             .ok()
             .and_then(|head| head.peel_to_tree().ok());
 
-        let index = self.repo.index().context("Failed to get repository index")?;
+        let index = self
+            .repo
+            .index()
+            .context("Failed to get repository index")?;
 
         let mut diff_opts = DiffOptions::new();
         diff_opts.context_lines(3);
@@ -841,7 +825,10 @@ impl GitRepository {
 
     /// Extract unstaged changes (workdir vs index)
     fn extract_unstaged_changes(&self) -> Result<Vec<FileChange>> {
-        let index = self.repo.index().context("Failed to get repository index")?;
+        let index = self
+            .repo
+            .index()
+            .context("Failed to get repository index")?;
 
         let mut diff_opts = DiffOptions::new();
         diff_opts.context_lines(3);
@@ -864,9 +851,8 @@ impl GitRepository {
         new_tree: Option<&git2::Tree>,
     ) -> Result<Vec<FileChange>> {
         self.extract_changes_from_diff_with_content(diff, |delta| {
-            let old_content = old_tree.and_then(|tree| {
-                self.get_blob_content_from_tree(tree, delta.old_file().path())
-            });
+            let old_content = old_tree
+                .and_then(|tree| self.get_blob_content_from_tree(tree, delta.old_file().path()));
             let new_content = if let Some(tree) = new_tree {
                 self.get_blob_content_from_tree(tree, delta.new_file().path())
             } else {
@@ -1006,8 +992,7 @@ impl GitRepository {
 
                         for line_idx in 0..num_lines {
                             if let Ok(line) = patch.line_in_hunk(hunk_idx, line_idx) {
-                                let content =
-                                    String::from_utf8_lossy(line.content()).to_string();
+                                let content = String::from_utf8_lossy(line.content()).to_string();
                                 let origin = line.origin();
 
                                 let (change_type, old_no, new_no) = match origin {
@@ -1217,5 +1202,260 @@ mod tests {
     fn test_invalid_pattern() {
         let patterns = vec!["[invalid".to_string()];
         assert!(init_ignore_patterns(&patterns).is_err());
+    }
+
+    // DiffMode tests
+    #[test]
+    fn test_diff_mode_default() {
+        let mode: DiffMode = Default::default();
+        assert_eq!(mode, DiffMode::Staged);
+    }
+
+    // RAII guard for temporary git repository - auto-cleans on drop
+    struct TestRepo {
+        path: std::path::PathBuf,
+        repo: git2::Repository,
+    }
+
+    impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    impl TestRepo {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            use std::time::{SystemTime, UNIX_EPOCH};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+            let unique_id = format!(
+                "{}_{}_{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            );
+            let path = std::env::temp_dir().join(format!("gitlogue_test_{}", unique_id));
+            if path.exists() {
+                std::fs::remove_dir_all(&path).unwrap();
+            }
+            std::fs::create_dir_all(&path).unwrap();
+
+            let repo = git2::Repository::init(&path).unwrap();
+
+            // Configure user for commits
+            let mut config = repo.config().unwrap();
+            config.set_str("user.name", "Test User").unwrap();
+            config.set_str("user.email", "test@example.com").unwrap();
+
+            Self { path, repo }
+        }
+    }
+
+    #[test]
+    fn test_working_tree_diff_empty_repo() {
+        let test_repo = TestRepo::new();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert_eq!(staged.hash, "working-tree");
+        assert_eq!(staged.author, "Working Tree");
+        assert_eq!(staged.message, "Staged changes");
+        assert!(staged.changes.is_empty());
+
+        let unstaged = repo.get_working_tree_diff(DiffMode::Unstaged).unwrap();
+        assert_eq!(unstaged.message, "Unstaged changes");
+        assert!(unstaged.changes.is_empty());
+    }
+
+    #[test]
+    fn test_working_tree_diff_with_unstaged_changes() {
+        let test_repo = TestRepo::new();
+
+        let file_path = test_repo.path.join("test.txt");
+        std::fs::write(&file_path, "initial content\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index.add_path(std::path::Path::new("test.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = test_repo.repo.find_tree(tree_id).unwrap();
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo
+            .repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+
+        std::fs::write(&file_path, "modified content\n").unwrap();
+
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let unstaged = repo.get_working_tree_diff(DiffMode::Unstaged).unwrap();
+        assert_eq!(unstaged.message, "Unstaged changes");
+        assert_eq!(unstaged.changes.len(), 1);
+        assert_eq!(unstaged.changes[0].path, "test.txt");
+        assert_eq!(unstaged.changes[0].status, FileStatus::Modified);
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert!(staged.changes.is_empty());
+    }
+
+    #[test]
+    fn test_working_tree_diff_with_staged_changes() {
+        let test_repo = TestRepo::new();
+
+        let file_path = test_repo.path.join("test.txt");
+        std::fs::write(&file_path, "initial content\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index.add_path(std::path::Path::new("test.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = test_repo.repo.find_tree(tree_id).unwrap();
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo
+            .repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+
+        std::fs::write(&file_path, "staged content\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index.add_path(std::path::Path::new("test.txt")).unwrap();
+        index.write().unwrap();
+
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert_eq!(staged.message, "Staged changes");
+        assert_eq!(staged.changes.len(), 1);
+        assert_eq!(staged.changes[0].path, "test.txt");
+        assert_eq!(staged.changes[0].status, FileStatus::Modified);
+
+        let unstaged = repo.get_working_tree_diff(DiffMode::Unstaged).unwrap();
+        assert!(unstaged.changes.is_empty());
+    }
+
+    #[test]
+    fn test_working_tree_diff_with_both_staged_and_unstaged() {
+        let test_repo = TestRepo::new();
+
+        let file1 = test_repo.path.join("file1.txt");
+        let file2 = test_repo.path.join("file2.txt");
+        std::fs::write(&file1, "file1 content\n").unwrap();
+        std::fs::write(&file2, "file2 content\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        index.add_path(std::path::Path::new("file2.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = test_repo.repo.find_tree(tree_id).unwrap();
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo
+            .repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+
+        std::fs::write(&file1, "file1 staged\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        index.write().unwrap();
+
+        std::fs::write(&file2, "file2 unstaged\n").unwrap();
+
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert_eq!(staged.changes.len(), 1);
+        assert_eq!(staged.changes[0].path, "file1.txt");
+
+        let unstaged = repo.get_working_tree_diff(DiffMode::Unstaged).unwrap();
+        assert_eq!(unstaged.changes.len(), 1);
+        assert_eq!(unstaged.changes[0].path, "file2.txt");
+    }
+
+    #[test]
+    fn test_working_tree_diff_new_file() {
+        let test_repo = TestRepo::new();
+
+        let file1 = test_repo.path.join("existing.txt");
+        std::fs::write(&file1, "existing\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index
+            .add_path(std::path::Path::new("existing.txt"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = test_repo.repo.find_tree(tree_id).unwrap();
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo
+            .repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+
+        let new_file = test_repo.path.join("new_file.txt");
+        std::fs::write(&new_file, "new file content\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index
+            .add_path(std::path::Path::new("new_file.txt"))
+            .unwrap();
+        index.write().unwrap();
+
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert_eq!(staged.changes.len(), 1);
+        assert_eq!(staged.changes[0].path, "new_file.txt");
+        assert_eq!(staged.changes[0].status, FileStatus::Added);
+    }
+
+    #[test]
+    fn test_working_tree_diff_deleted_file() {
+        let test_repo = TestRepo::new();
+
+        let file = test_repo.path.join("to_delete.txt");
+        std::fs::write(&file, "will be deleted\n").unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index
+            .add_path(std::path::Path::new("to_delete.txt"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = test_repo.repo.find_tree(tree_id).unwrap();
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo
+            .repo
+            .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+
+        std::fs::remove_file(&file).unwrap();
+        let mut index = test_repo.repo.index().unwrap();
+        index
+            .remove_path(std::path::Path::new("to_delete.txt"))
+            .unwrap();
+        index.write().unwrap();
+
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let staged = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+        assert_eq!(staged.changes.len(), 1);
+        assert_eq!(staged.changes[0].path, "to_delete.txt");
+        assert_eq!(staged.changes[0].status, FileStatus::Deleted);
+    }
+
+    #[test]
+    fn test_working_tree_diff_metadata_fields() {
+        let test_repo = TestRepo::new();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        let result = repo.get_working_tree_diff(DiffMode::Staged).unwrap();
+
+        assert_eq!(result.hash, "working-tree");
+        assert_eq!(result.author, "Working Tree");
+        assert_eq!(result.message, "Staged changes");
+        // Date should be recent (within last minute)
+        let now = Utc::now();
+        let diff = now.signed_duration_since(result.date);
+        assert!(diff.num_seconds() < 60);
     }
 }

@@ -156,15 +156,17 @@ pub enum Commands {
         #[command(subcommand)]
         command: ThemeCommands,
     },
-    /// Show uncommitted working tree changes
+    /// Show staged working tree changes (use --unstaged for unstaged changes)
     Diff {
-        #[arg(long, help = "Show only staged changes")]
-        staged: bool,
-
-        #[arg(long, help = "Show only unstaged changes")]
+        #[arg(long, help = "Show unstaged changes instead of staged")]
         unstaged: bool,
 
-        #[arg(short, long, value_name = "MS", help = "Typing speed in milliseconds per character")]
+        #[arg(
+            short,
+            long,
+            value_name = "MS",
+            help = "Typing speed in milliseconds per character"
+        )]
         speed: Option<u64>,
 
         #[arg(short, long, value_name = "NAME", help = "Theme to use")]
@@ -275,7 +277,6 @@ fn main() -> Result<()> {
                 }
             },
             Commands::Diff {
-                staged,
                 unstaged,
                 speed,
                 theme,
@@ -287,10 +288,10 @@ fn main() -> Result<()> {
                 let repo_path = args.validate()?;
                 let repo = GitRepository::open(&repo_path)?;
 
-                let mode = match (*staged, *unstaged) {
-                    (true, false) => DiffMode::Staged,
-                    (false, true) => DiffMode::Unstaged,
-                    _ => DiffMode::All,
+                let mode = if *unstaged {
+                    DiffMode::Unstaged
+                } else {
+                    DiffMode::Staged
                 };
 
                 let metadata = repo.get_working_tree_diff(mode)?;
