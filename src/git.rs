@@ -41,6 +41,7 @@ const EXCLUDED_FILES: &[&str] = &[
     // Python
     "poetry.lock",
     "Pipfile.lock",
+    "uv.lock",
     // PHP
     "composer.lock",
     // Go
@@ -1099,6 +1100,7 @@ mod tests {
         // Python
         assert!(should_exclude_file("poetry.lock"));
         assert!(should_exclude_file("Pipfile.lock"));
+        assert!(should_exclude_file("uv.lock"));
         // PHP
         assert!(should_exclude_file("composer.lock"));
         // Go
