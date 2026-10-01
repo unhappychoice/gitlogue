@@ -331,7 +331,11 @@ impl<'a> UI<'a> {
 
     fn advance_to_next_commit(&mut self) -> bool {
         if self.watcher.is_some() {
-            return self.play_next_watched_commit();
+            let played = self.play_next_watched_commit();
+            if !played {
+                self.enter_watching();
+            }
+            return played;
         }
 
         if let Some(diff_mode) = self.diff_mode {
@@ -387,16 +391,18 @@ impl<'a> UI<'a> {
             .zip(self.repo)
             .and_then(|(hash, repo)| repo.get_commit(&hash).ok());
 
-        match next {
-            Some(metadata) => {
-                self.load_commit(metadata);
-                true
-            }
-            None => {
-                self.state = UIState::Watching;
-                false
-            }
-        }
+        let Some(metadata) = next else {
+            return false;
+        };
+        self.load_commit(metadata);
+        true
+    }
+
+    fn enter_watching(&mut self) {
+        self.engine.clear();
+        self.file_tree = FileTreePane::new();
+        self.state = UIState::Watching;
+        self.force_redraw = true;
     }
 
     fn poll_watcher(&mut self, now: Instant) {
@@ -508,7 +514,7 @@ impl<'a> UI<'a> {
 
         match self.state {
             UIState::Playing if self.engine.is_finished() && self.watcher.is_some() => {
-                self.state = UIState::Watching;
+                self.advance_to_next_commit();
             }
             UIState::Watching if self.playback_state != PlaybackState::Paused => {
                 self.play_next_watched_commit();
@@ -1799,6 +1805,8 @@ mod tests {
         ui.advance_state_after_tick(now + Duration::from_secs(2));
         assert_eq!(ui.state, UIState::Watching);
         assert_eq!(ui.history.len(), 2);
+        assert!(ui.engine.current_metadata().is_none());
+        assert!(ui.engine.current_file_path.is_none());
     }
 
     #[test]
