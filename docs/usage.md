@@ -217,6 +217,25 @@ This is especially useful when viewing a specific commit or commit range and you
 - Desktop ricing and ambience
 - Educational replays of feature development
 
+### `--watch` / `-w`
+
+Watch the repository and replay new commits as they are made — a live commit visualizer.
+
+```bash
+gitlogue --watch              # Wait for new commits and replay them
+gitlogue --watch --speed 10   # Faster typing for live demos
+```
+
+**Behavior:**
+- HEAD is polled every second; any commits reachable from the new HEAD but not from the previous one are queued (covers `git commit`, `git pull`, `git rebase`, etc.)
+- Merge commits are skipped (their changes are replayed via the merged commits)
+- Switching branches (`git checkout` / `git switch`) does not replay the commits of the new branch; only commits made afterwards are replayed
+- While no new commits are queued, a waiting screen is shown
+- Queued commits are replayed back-to-back in chronological order
+- Typing speeds up automatically while commits are queued, linearly from 1x (empty queue) to 10x (100 queued commits)
+- At most 100 commits are queued; when more arrive, the oldest queued commits are dropped
+- Cannot be combined with `--commit`, `--order`, `--loop`, `--author`, `--before`, or `--after`
+
 ### `--help`
 
 Display help information:

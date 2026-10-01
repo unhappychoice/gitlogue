@@ -304,6 +304,7 @@ pub struct AnimationEngine {
     pending_metadata: Option<CommitMetadata>,
     /// Speed rules for different file patterns
     speed_rules: Vec<SpeedRule>,
+    speed_multiplier: f64,
     paused: bool,
     line_checkpoints: VecDeque<ManualCheckpoint>,
     change_checkpoints: VecDeque<ManualCheckpoint>,
@@ -343,6 +344,7 @@ impl AnimationEngine {
             current_metadata: None,
             pending_metadata: None,
             speed_rules: Vec::new(),
+            speed_multiplier: 1.0,
             paused: false,
             line_checkpoints: VecDeque::new(),
             change_checkpoints: VecDeque::new(),
@@ -536,20 +538,36 @@ impl AnimationEngine {
         self.change_checkpoints.clear();
     }
 
+    /// Clears the loaded commit and editor contents, keeping speed and viewport settings.
+    pub fn clear(&mut self) {
+        let mut cleared = Self::new(self.base_speed_ms);
+        cleared.speed_rules = std::mem::take(&mut self.speed_rules);
+        cleared.speed_multiplier = self.speed_multiplier;
+        cleared.viewport_height = self.viewport_height;
+        cleared.content_width = self.content_width;
+        cleared.paused = self.paused;
+        *self = cleared;
+    }
+
     /// Set speed rules for file-specific typing speeds
     pub fn set_speed_rules(&mut self, rules: Vec<SpeedRule>) {
         self.speed_rules = rules;
     }
 
+    /// Speed up typing by `multiplier` (applied from the next file onward)
+    pub fn set_speed_multiplier(&mut self, multiplier: f64) {
+        self.speed_multiplier = multiplier.max(1.0);
+    }
+
     /// Get the speed for a given file path based on speed rules
     /// Returns the first matching rule's speed, or the base speed if no match
     fn get_speed_for_file(&self, path: &str) -> u64 {
-        for rule in &self.speed_rules {
-            if rule.matches(path) {
-                return rule.speed_ms;
-            }
-        }
-        self.base_speed_ms
+        let speed = self
+            .speed_rules
+            .iter()
+            .find(|rule| rule.matches(path))
+            .map_or(self.base_speed_ms, |rule| rule.speed_ms);
+        (speed as f64 / self.speed_multiplier) as u64
     }
 
     /// Sets the viewport height for scroll calculations.
@@ -1509,6 +1527,38 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn clear_drops_loaded_commit_but_keeps_speed_and_viewport_settings() {
+        let mut engine = AnimationEngine::new(30);
+        engine.set_speed_rules(vec![speed_rule("*.rs:5")]);
+        engine.set_speed_multiplier(2.0);
+        engine.set_viewport_height(42);
+        engine.load_commit(&metadata(
+            "abc1234",
+            "message",
+            vec![file_change(
+                "src/lib.rs",
+                None,
+                FileStatus::Modified,
+                false,
+                None,
+                Some("old\n"),
+                Some("new\n"),
+                vec![hunk(1, vec![line_change(LineChangeType::Addition, "new")])],
+            )],
+        ));
+        while engine.manual_step(StepMode::Change) {}
+
+        engine.clear();
+
+        assert!(engine.current_metadata().is_none());
+        assert!(engine.current_file_path.is_none());
+        assert!(engine.terminal_lines.is_empty());
+        assert_eq!(engine.speed_rules.len(), 1);
+        assert_eq!(engine.speed_multiplier, 2.0);
+        assert_eq!(engine.viewport_height, 42);
     }
 
     #[test]

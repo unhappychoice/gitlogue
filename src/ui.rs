@@ -23,12 +23,14 @@ use crate::animation::{AnimationEngine, SpeedRule, StepMode};
 use crate::git::{CommitMetadata, DiffMode, GitRepository};
 use crate::panes::{EditorPane, FileTreePane, StatusBarPane, TerminalPane};
 use crate::theme::Theme;
+use crate::watch::{adaptive_speed_multiplier, CommitWatcher};
 use crate::PlaybackOrder;
 
 #[derive(Debug, Clone, PartialEq)]
 enum UIState {
     Playing,
     WaitingForNext { resume_at: Instant },
+    Watching,
     Menu,
     KeyBindings,
     About,
@@ -63,6 +65,8 @@ pub struct UI<'a> {
     history_index: Option<usize>,
     menu_index: usize,
     prev_state: Option<Box<UIState>>,
+    watcher: Option<CommitWatcher>,
+    force_redraw: bool,
 }
 
 impl<'a> UI<'a> {
@@ -129,12 +133,20 @@ impl<'a> UI<'a> {
             history_index: None,
             menu_index: 0,
             prev_state: None,
+            watcher: None,
+            force_redraw: true,
         }
     }
 
     /// Sets the diff mode for working tree diff playback.
     pub fn set_diff_mode(&mut self, mode: Option<DiffMode>) {
         self.diff_mode = mode;
+    }
+
+    /// Enables watch mode: new commits detected by the watcher are played as they arrive.
+    pub fn enable_watch(&mut self, watcher: CommitWatcher) {
+        self.watcher = Some(watcher);
+        self.state = UIState::Watching;
     }
 
     fn open_menu(&mut self) {
@@ -318,6 +330,14 @@ impl<'a> UI<'a> {
     }
 
     fn advance_to_next_commit(&mut self) -> bool {
+        if self.watcher.is_some() {
+            let played = self.play_next_watched_commit();
+            if !played {
+                self.enter_watching();
+            }
+            return played;
+        }
+
         if let Some(diff_mode) = self.diff_mode {
             if let Some(repo) = self.repo {
                 match repo.get_working_tree_diff(diff_mode) {
@@ -361,6 +381,37 @@ impl<'a> UI<'a> {
                 }
             }
         }
+    }
+
+    fn play_next_watched_commit(&mut self) -> bool {
+        let next = self
+            .watcher
+            .as_mut()
+            .and_then(CommitWatcher::next_commit)
+            .zip(self.repo)
+            .and_then(|(hash, repo)| repo.get_commit(&hash).ok());
+
+        let Some(metadata) = next else {
+            return false;
+        };
+        self.load_commit(metadata);
+        true
+    }
+
+    fn enter_watching(&mut self) {
+        self.engine.clear();
+        self.file_tree = FileTreePane::new();
+        self.state = UIState::Watching;
+        self.force_redraw = true;
+    }
+
+    fn poll_watcher(&mut self, now: Instant) {
+        let (Some(watcher), Some(repo)) = (self.watcher.as_mut(), self.repo) else {
+            return;
+        };
+        watcher.poll(repo, now);
+        self.engine
+            .set_speed_multiplier(adaptive_speed_multiplier(watcher.pending_len()));
     }
 
     fn fetch_repo_commit(&self, repo: &GitRepository) -> Result<CommitMetadata> {
@@ -459,7 +510,17 @@ impl<'a> UI<'a> {
     }
 
     fn advance_state_after_tick(&mut self, now: Instant) -> bool {
+        self.poll_watcher(now);
+
         match self.state {
+            UIState::Playing if self.engine.is_finished() && self.watcher.is_some() => {
+                if self.playback_state != PlaybackState::Paused {
+                    self.advance_to_next_commit();
+                }
+            }
+            UIState::Watching if self.playback_state != PlaybackState::Paused => {
+                self.play_next_watched_commit();
+            }
             UIState::Playing if self.engine.is_finished() => {
                 self.state = if self.repo.is_some() {
                     UIState::WaitingForNext {
@@ -502,6 +563,7 @@ impl<'a> UI<'a> {
     }
 
     fn handle_event(&mut self, event: Event) {
+        self.force_redraw = true;
         if let Event::Key(key) = event {
             self.handle_key_event(key);
         }
@@ -566,7 +628,7 @@ impl<'a> UI<'a> {
             self.sync_exit_state();
 
             self.update_viewport(terminal.size()?.into());
-            let needs_redraw = self.engine.tick();
+            let needs_redraw = self.engine.tick() | std::mem::take(&mut self.force_redraw);
             self.draw_if_needed(terminal, needs_redraw)?;
             self.handle_pending_event(&mut poll, &mut read)?;
 
@@ -714,6 +776,10 @@ impl<'a> UI<'a> {
             f.render_widget(dialog, dialog_area);
         }
 
+        if self.state == UIState::Watching && self.engine.current_metadata().is_none() {
+            self.render_watching_message(f, right_layout[0]);
+        }
+
         // Render menu / key bindings / about overlays
         match self.state {
             UIState::Menu => self.render_menu(f, size),
@@ -721,6 +787,17 @@ impl<'a> UI<'a> {
             UIState::About => self.render_about(f, size),
             _ => {}
         }
+    }
+
+    fn render_watching_message(&self, f: &mut Frame, area: Rect) {
+        let message = "Watching for new commits...";
+        let message_area = Self::centered_rect(area, message.width() as u16, 1);
+        let paragraph = Paragraph::new(message).style(
+            Style::default()
+                .fg(self.theme.status_no_commit)
+                .bg(self.theme.background_right),
+        );
+        f.render_widget(paragraph, message_area);
     }
 
     fn render_menu(&self, f: &mut Frame, size: Rect) {
@@ -1666,6 +1743,208 @@ mod tests {
         assert!(about.contains("About (Esc to close)"));
         assert!(about.contains(&format!("Version {}", env!("CARGO_PKG_VERSION"))));
         assert!(about.contains("https://github.com/unhappychoice/gitlogue"));
+    }
+
+    fn watch_ui(repo: &GitRepository, now: Instant) -> UI<'_> {
+        let mut ui = test_ui_with_repo(Some(repo));
+        ui.enable_watch(CommitWatcher::new(repo, now));
+        ui
+    }
+
+    fn finish_playback(ui: &mut UI<'_>) {
+        while ui.engine.manual_step(StepMode::Change) {}
+    }
+
+    #[test]
+    fn run_loop_draws_first_frame_even_without_animation_progress() {
+        let mut ui = test_ui();
+        ui.state = UIState::Watching;
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+
+        ui.run_loop_with(&mut terminal, |_| Ok(true), quit_event, Instant::now)
+            .unwrap();
+
+        assert!(buffer_text(terminal.backend().buffer()).contains("Watching for new commits..."));
+    }
+
+    #[test]
+    fn watch_mode_waits_without_playing_existing_commits() {
+        let test_repo = TestRepo::new();
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        assert!(ui.advance_state_after_tick(now + Duration::from_secs(2)));
+
+        assert_eq!(ui.state, UIState::Watching);
+        assert!(ui.history.is_empty());
+        assert!(ui.engine.current_metadata().is_none());
+    }
+
+    #[test]
+    fn watch_mode_plays_new_commits_in_order_then_returns_to_watching() {
+        let test_repo = TestRepo::new();
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+        let first = test_repo.commit_file("src/lib.rs", "fn first() {}\n", "first", 1_700_000_060);
+        let second =
+            test_repo.commit_file("src/lib.rs", "fn second() {}\n", "second", 1_700_000_120);
+
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.last().unwrap().hash, first);
+
+        finish_playback(&mut ui);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.history.last().unwrap().hash, second);
+
+        finish_playback(&mut ui);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Watching);
+        assert_eq!(ui.history.len(), 2);
+        assert!(ui.engine.current_metadata().is_none());
+        assert!(ui.engine.current_file_path.is_none());
+    }
+
+    #[test]
+    fn watch_mode_ignores_commits_brought_in_by_branch_switch() {
+        let test_repo = TestRepo::new();
+        let base = test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let base_commit = test_repo
+            .repo
+            .find_commit(git2::Oid::from_str(&base).unwrap())
+            .unwrap();
+        test_repo
+            .repo
+            .branch("feature", &base_commit, false)
+            .unwrap();
+        let main_branch = test_repo.repo.head().unwrap().name().unwrap().to_string();
+        test_repo.repo.set_head("refs/heads/feature").unwrap();
+        test_repo.commit_file("src/lib.rs", "fn feature() {}\n", "feature", 1_700_000_060);
+        test_repo.repo.set_head(&main_branch).unwrap();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        test_repo.repo.set_head("refs/heads/feature").unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Watching);
+
+        let next = test_repo.commit_file("src/lib.rs", "fn next() {}\n", "next", 1_700_000_120);
+        ui.advance_state_after_tick(now + Duration::from_secs(4));
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.last().unwrap().hash, next);
+    }
+
+    #[test]
+    fn watch_mode_ignores_return_from_detached_checkout() {
+        let test_repo = TestRepo::new();
+        let ancestor =
+            test_repo.commit_file("src/lib.rs", "fn old() {}\n", "ancestor", 1_700_000_000);
+        test_repo.commit_file("src/lib.rs", "fn tip() {}\n", "tip", 1_700_000_060);
+        let branch = test_repo.repo.head().unwrap().name().unwrap().to_string();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        test_repo
+            .repo
+            .set_head_detached(git2::Oid::from_str(&ancestor).unwrap())
+            .unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        test_repo.repo.set_head(&branch).unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(4));
+
+        assert_eq!(ui.state, UIState::Watching);
+        assert!(ui.history.is_empty());
+    }
+
+    #[test]
+    fn watch_mode_replays_commits_rebased_while_detached() {
+        let test_repo = TestRepo::new();
+        let tip = test_repo.commit_file("src/lib.rs", "fn old() {}\n", "tip", 1_700_000_000);
+        let branch = test_repo.repo.head().unwrap().name().unwrap().to_string();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        test_repo
+            .repo
+            .set_head_detached(git2::Oid::from_str(&tip).unwrap())
+            .unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        let rebased =
+            test_repo.commit_file("src/lib.rs", "fn rebased() {}\n", "rebased", 1_700_000_060);
+        test_repo
+            .repo
+            .reference(
+                &branch,
+                git2::Oid::from_str(&rebased).unwrap(),
+                true,
+                "rebase",
+            )
+            .unwrap();
+        test_repo.repo.set_head(&branch).unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(4));
+
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.last().unwrap().hash, rebased);
+    }
+
+    #[test]
+    fn watch_mode_does_not_advance_to_queued_commit_while_paused() {
+        let test_repo = TestRepo::new();
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+        test_repo.commit_file("src/lib.rs", "fn first() {}\n", "first", 1_700_000_060);
+        let second =
+            test_repo.commit_file("src/lib.rs", "fn second() {}\n", "second", 1_700_000_120);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+
+        ui.toggle_pause();
+        finish_playback(&mut ui);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.len(), 1);
+
+        ui.toggle_pause();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.history.last().unwrap().hash, second);
+    }
+
+    #[test]
+    fn watch_mode_does_not_start_new_commit_while_paused() {
+        let test_repo = TestRepo::new();
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+        ui.toggle_pause();
+        test_repo.commit_file("src/lib.rs", "fn new() {}\n", "new", 1_700_000_060);
+
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Watching);
+
+        ui.toggle_pause();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Playing);
+    }
+
+    #[test]
+    fn render_watching_state_shows_waiting_message() {
+        let mut ui = test_ui();
+        ui.state = UIState::Watching;
+
+        let text = buffer_text(&render_buffer(&mut ui, 100, 30));
+
+        assert!(text.contains("Watching for new commits..."));
     }
 
     #[test]
