@@ -304,6 +304,7 @@ pub struct AnimationEngine {
     pending_metadata: Option<CommitMetadata>,
     /// Speed rules for different file patterns
     speed_rules: Vec<SpeedRule>,
+    speed_multiplier: f64,
     paused: bool,
     line_checkpoints: VecDeque<ManualCheckpoint>,
     change_checkpoints: VecDeque<ManualCheckpoint>,
@@ -343,6 +344,7 @@ impl AnimationEngine {
             current_metadata: None,
             pending_metadata: None,
             speed_rules: Vec::new(),
+            speed_multiplier: 1.0,
             paused: false,
             line_checkpoints: VecDeque::new(),
             change_checkpoints: VecDeque::new(),
@@ -541,15 +543,20 @@ impl AnimationEngine {
         self.speed_rules = rules;
     }
 
+    /// Speed up typing by `multiplier` (applied from the next file onward)
+    pub fn set_speed_multiplier(&mut self, multiplier: f64) {
+        self.speed_multiplier = multiplier.max(1.0);
+    }
+
     /// Get the speed for a given file path based on speed rules
     /// Returns the first matching rule's speed, or the base speed if no match
     fn get_speed_for_file(&self, path: &str) -> u64 {
-        for rule in &self.speed_rules {
-            if rule.matches(path) {
-                return rule.speed_ms;
-            }
-        }
-        self.base_speed_ms
+        let speed = self
+            .speed_rules
+            .iter()
+            .find(|rule| rule.matches(path))
+            .map_or(self.base_speed_ms, |rule| rule.speed_ms);
+        (speed as f64 / self.speed_multiplier) as u64
     }
 
     /// Sets the viewport height for scroll calculations.

@@ -116,6 +116,9 @@ gitlogue --commit abc123 --loop
 # Loop through a commit range
 gitlogue --commit HEAD~10..HEAD --loop
 
+# Watch the repository and replay new commits as they are made
+gitlogue --watch
+
 # View staged changes (default)
 gitlogue diff
 

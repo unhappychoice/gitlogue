@@ -5,6 +5,7 @@ mod panes;
 mod syntax;
 mod theme;
 mod ui;
+mod watch;
 mod widgets;
 
 use animation::SpeedRule;
@@ -15,6 +16,7 @@ use git::{DiffMode, GitRepository};
 use std::path::{Path, PathBuf};
 use theme::Theme;
 use ui::UI;
+use watch::CommitWatcher;
 
 /// Defines the order in which commits are played back during animation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
@@ -90,6 +92,14 @@ pub struct Args {
         help = "Loop the animation continuously (useful with --commit for commit ranges)"
     )]
     pub loop_playback: Option<bool>,
+
+    #[arg(
+        short = 'w',
+        long,
+        conflicts_with_all = ["commit", "order", "loop_playback", "author", "before", "after"],
+        help = "Watch the repository and replay new commits as they are made"
+    )]
+    pub watch: bool,
 
     #[arg(long, help = "Display third-party license information")]
     pub license: bool,
@@ -487,6 +497,41 @@ fn prepare_diff_playback(
     }))
 }
 
+fn run_watch_mode(repo: &GitRepository, args: &Args, config: &Config) -> Result<()> {
+    let patterns = collect_ignore_patterns(
+        &config.ignore_patterns,
+        args.ignore_file.as_deref(),
+        &args.ignore,
+    )?;
+    git::init_ignore_patterns(&patterns).ok();
+    let RuntimeOptions {
+        speed,
+        theme,
+        speed_rules,
+        ..
+    } = resolve_runtime_options(
+        args.speed,
+        args.theme.as_deref(),
+        args.background,
+        None,
+        &args.speed_rule,
+        config,
+        false,
+    )?;
+    let mut ui = UI::new(
+        speed,
+        Some(repo),
+        theme,
+        PlaybackOrder::Asc,
+        false,
+        None,
+        false,
+        speed_rules,
+    );
+    ui.enable_watch(CommitWatcher::new(repo, std::time::Instant::now()));
+    ui.run()
+}
+
 fn format_theme_list() -> String {
     std::iter::once("Available themes:".to_string())
         .chain(
@@ -595,6 +640,9 @@ fn main() -> Result<()> {
     let repo_path = args.validate()?;
     let mut repo = GitRepository::open(&repo_path)?;
     let config = Config::load()?;
+    if args.watch {
+        return run_watch_mode(&repo, &args, &config);
+    }
     let CommitPlaybackPlan {
         metadata,
         runtime,
@@ -784,6 +832,7 @@ mod tests {
             background: None,
             order: None,
             loop_playback: None,
+            watch: false,
             license: false,
             author: None,
             before: None,
@@ -1200,5 +1249,17 @@ mod tests {
             .to_string();
 
         assert!(error.contains("Author pattern cannot be empty"));
+    }
+
+    #[test]
+    fn watch_flag_parses_and_rejects_commit_selection_options() {
+        let args = Args::try_parse_from(["gitlogue", "--watch", "--speed", "5"]).unwrap();
+        assert!(args.watch);
+        assert_eq!(args.speed, Some(5));
+
+        let error = Args::try_parse_from(["gitlogue", "--watch", "--commit", "HEAD"])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("cannot be used with"));
     }
 }

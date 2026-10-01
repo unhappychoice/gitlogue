@@ -400,6 +400,38 @@ impl GitRepository {
         Self::extract_metadata_with_changes(&self.repo, &commit)
     }
 
+    pub fn head_commit_id(&self) -> Option<String> {
+        self.repo
+            .head()
+            .and_then(|head| head.peel_to_commit())
+            .map(|commit| commit.id().to_string())
+            .ok()
+    }
+
+    /// Returns the checked-out branch name, or `None` when HEAD is detached (e.g. mid-rebase).
+    pub fn head_branch_name(&self) -> Option<String> {
+        self.repo
+            .head()
+            .ok()
+            .filter(|head| head.is_branch())
+            .and_then(|head| head.shorthand().map(String::from).ok())
+    }
+
+    /// Returns non-merge commits reachable from `to` but not from `from`, oldest first.
+    pub fn commit_ids_between(&self, from: Option<&str>, to: &str) -> Result<Vec<String>> {
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::REVERSE)?;
+        revwalk.push(Oid::from_str(to)?)?;
+        if let Some(oid) = from.and_then(|hash| Oid::from_str(hash).ok()) {
+            revwalk.hide(oid).ok();
+        }
+        revwalk
+            .map(|oid| oid.and_then(|oid| self.repo.find_commit(oid)))
+            .filter(|commit| !matches!(commit, Ok(commit) if commit.parent_count() > 1))
+            .map(|commit| Ok(commit?.id().to_string()))
+            .collect()
+    }
+
     pub fn reset_index(&self) {
         *self.commit_index.borrow_mut() = 0;
     }
@@ -1521,6 +1553,99 @@ mod tests {
 
         let error = repo.next_desc_commit().unwrap_err().to_string();
         assert!(error.contains("No commits found matching the filters in repository"));
+    }
+
+    #[test]
+    fn test_commit_ids_between_returns_new_commits_oldest_first() {
+        let test_repo = TestRepo::new();
+        let base = test_repo.commit_file(
+            "history.txt",
+            "one\n",
+            "Alice Example",
+            "alice@example.com",
+            1_700_000_000,
+            "base",
+        );
+        let first = test_repo.commit_file(
+            "history.txt",
+            "two\n",
+            "Alice Example",
+            "alice@example.com",
+            1_700_000_060,
+            "first",
+        );
+        let second = test_repo.commit_file(
+            "history.txt",
+            "three\n",
+            "Alice Example",
+            "alice@example.com",
+            1_700_000_120,
+            "second",
+        );
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        assert_eq!(repo.head_commit_id().as_deref(), Some(second.as_str()));
+        assert_eq!(
+            repo.commit_ids_between(Some(&base), &second).unwrap(),
+            vec![first.clone(), second.clone()]
+        );
+        assert_eq!(
+            repo.commit_ids_between(None, &second).unwrap(),
+            vec![base, first, second]
+        );
+    }
+
+    #[test]
+    fn test_commit_ids_between_skips_merge_commits() {
+        let test_repo = TestRepo::new();
+        let base = test_repo.commit_file(
+            "history.txt",
+            "one\n",
+            "Alice Example",
+            "alice@example.com",
+            1_700_000_000,
+            "base",
+        );
+        let feature = test_repo.commit_file(
+            "feature.txt",
+            "feature\n",
+            "Alice Example",
+            "alice@example.com",
+            1_700_000_060,
+            "feature",
+        );
+        let base_commit = test_repo
+            .repo
+            .find_commit(Oid::from_str(&base).unwrap())
+            .unwrap();
+        let feature_commit = test_repo
+            .repo
+            .find_commit(Oid::from_str(&feature).unwrap())
+            .unwrap();
+        let signature = git2::Signature::new(
+            "Alice Example",
+            "alice@example.com",
+            &git2::Time::new(1_700_000_120, 0),
+        )
+        .unwrap();
+        let merge = test_repo
+            .repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "merge",
+                &feature_commit.tree().unwrap(),
+                &[&feature_commit, &base_commit],
+            )
+            .unwrap()
+            .to_string();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+
+        assert_eq!(
+            repo.commit_ids_between(Some(&base), &merge).unwrap(),
+            vec![feature]
+        );
     }
 
     #[test]
