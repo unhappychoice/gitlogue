@@ -66,6 +66,7 @@ pub struct UI<'a> {
     menu_index: usize,
     prev_state: Option<Box<UIState>>,
     watcher: Option<CommitWatcher>,
+    force_redraw: bool,
 }
 
 impl<'a> UI<'a> {
@@ -133,6 +134,7 @@ impl<'a> UI<'a> {
             menu_index: 0,
             prev_state: None,
             watcher: None,
+            force_redraw: true,
         }
     }
 
@@ -410,6 +412,7 @@ impl<'a> UI<'a> {
         };
         self.engine.load_commit(&metadata);
         while self.engine.manual_step(StepMode::Change) {}
+        self.force_redraw = true;
     }
 
     fn poll_watcher(&mut self, now: Instant) {
@@ -569,6 +572,7 @@ impl<'a> UI<'a> {
     }
 
     fn handle_event(&mut self, event: Event) {
+        self.force_redraw = true;
         if let Event::Key(key) = event {
             self.handle_key_event(key);
         }
@@ -633,7 +637,7 @@ impl<'a> UI<'a> {
             self.sync_exit_state();
 
             self.update_viewport(terminal.size()?.into());
-            let needs_redraw = self.engine.tick();
+            let needs_redraw = self.engine.tick() | std::mem::take(&mut self.force_redraw);
             self.draw_if_needed(terminal, needs_redraw)?;
             self.handle_pending_event(&mut poll, &mut read)?;
 
@@ -1761,6 +1765,18 @@ mod tests {
     }
 
     #[test]
+    fn run_loop_draws_first_frame_even_without_animation_progress() {
+        let mut ui = test_ui();
+        ui.state = UIState::Watching;
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+
+        ui.run_loop_with(&mut terminal, |_| Ok(true), quit_event, Instant::now)
+            .unwrap();
+
+        assert!(buffer_text(terminal.backend().buffer()).contains("Watching for new commits..."));
+    }
+
+    #[test]
     fn watch_mode_shows_head_in_final_state_without_playing_it() {
         let test_repo = TestRepo::new();
         let head = test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
@@ -1774,6 +1790,7 @@ mod tests {
         assert!(ui.history.is_empty());
         assert!(ui.engine.is_finished());
         assert_eq!(ui.engine.current_metadata().unwrap().hash, head);
+        assert!(ui.force_redraw);
     }
 
     #[test]
