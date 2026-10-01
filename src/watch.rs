@@ -11,7 +11,6 @@ const MAX_SPEED_MULTIPLIER: f64 = 10.0;
 
 /// Watches the repository HEAD and queues newly arrived commits for playback.
 pub struct CommitWatcher {
-    initial_head: Option<String>,
     last_head: Option<String>,
     last_branch: Option<String>,
     pending: VecDeque<String>,
@@ -20,10 +19,8 @@ pub struct CommitWatcher {
 
 impl CommitWatcher {
     pub fn new(repo: &GitRepository, now: Instant) -> Self {
-        let head = repo.head_commit_id();
         Self {
-            initial_head: head.clone(),
-            last_head: head,
+            last_head: repo.head_commit_id(),
             last_branch: repo.head_branch_name(),
             pending: VecDeque::new(),
             next_poll: now + POLL_INTERVAL,
@@ -37,11 +34,6 @@ impl CommitWatcher {
         }
         self.next_poll = now + POLL_INTERVAL;
         self.check_head(repo);
-    }
-
-    /// Takes the HEAD commit hash observed at startup (only once).
-    pub fn take_initial_head(&mut self) -> Option<String> {
-        self.initial_head.take()
     }
 
     /// Takes the oldest pending commit hash.
@@ -102,7 +94,6 @@ mod tests {
 
     fn watcher_with_pending(pending: &[&str]) -> CommitWatcher {
         CommitWatcher {
-            initial_head: None,
             last_head: None,
             last_branch: None,
             pending: pending.iter().map(|hash| hash.to_string()).collect(),

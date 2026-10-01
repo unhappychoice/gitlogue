@@ -230,7 +230,7 @@ gitlogue --watch --speed 10   # Faster typing for live demos
 - HEAD is polled every second; any commits reachable from the new HEAD but not from the previous one are queued (covers `git commit`, `git pull`, `git rebase`, etc.)
 - Merge commits are skipped (their changes are replayed via the merged commits)
 - Switching branches (`git checkout` / `git switch`) does not replay the commits of the new branch; only commits made afterwards are replayed
-- On startup, the current HEAD commit is shown in its final state (without animation) while waiting for new commits
+- While no new commits are queued, a waiting screen is shown
 - Queued commits are replayed back-to-back in chronological order
 - Typing speeds up automatically while commits are queued, linearly from 1x (empty queue) to 10x (100 queued commits)
 - At most 100 commits are queued; when more arrive, the oldest queued commits are dropped

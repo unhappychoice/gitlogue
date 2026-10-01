@@ -399,22 +399,6 @@ impl<'a> UI<'a> {
         }
     }
 
-    /// Shows the startup HEAD commit in its final state so the idle screen is not empty.
-    fn show_initial_head(&mut self) {
-        let Some(metadata) = self
-            .watcher
-            .as_mut()
-            .and_then(CommitWatcher::take_initial_head)
-            .zip(self.repo)
-            .and_then(|(hash, repo)| repo.get_commit(&hash).ok())
-        else {
-            return;
-        };
-        self.engine.load_commit(&metadata);
-        while self.engine.manual_step(StepMode::Change) {}
-        self.force_redraw = true;
-    }
-
     fn poll_watcher(&mut self, now: Instant) {
         let (Some(watcher), Some(repo)) = (self.watcher.as_mut(), self.repo) else {
             return;
@@ -520,7 +504,6 @@ impl<'a> UI<'a> {
     }
 
     fn advance_state_after_tick(&mut self, now: Instant) -> bool {
-        self.show_initial_head();
         self.poll_watcher(now);
 
         match self.state {
@@ -1777,9 +1760,9 @@ mod tests {
     }
 
     #[test]
-    fn watch_mode_shows_head_in_final_state_without_playing_it() {
+    fn watch_mode_waits_without_playing_existing_commits() {
         let test_repo = TestRepo::new();
-        let head = test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
         let repo = GitRepository::open(&test_repo.path).unwrap();
         let now = Instant::now();
         let mut ui = watch_ui(&repo, now);
@@ -1788,9 +1771,7 @@ mod tests {
 
         assert_eq!(ui.state, UIState::Watching);
         assert!(ui.history.is_empty());
-        assert!(ui.engine.is_finished());
-        assert_eq!(ui.engine.current_metadata().unwrap().hash, head);
-        assert!(ui.force_redraw);
+        assert!(ui.engine.current_metadata().is_none());
     }
 
     #[test]
