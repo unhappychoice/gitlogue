@@ -514,7 +514,9 @@ impl<'a> UI<'a> {
 
         match self.state {
             UIState::Playing if self.engine.is_finished() && self.watcher.is_some() => {
-                self.advance_to_next_commit();
+                if self.playback_state != PlaybackState::Paused {
+                    self.advance_to_next_commit();
+                }
             }
             UIState::Watching if self.playback_state != PlaybackState::Paused => {
                 self.play_next_watched_commit();
@@ -1837,6 +1839,84 @@ mod tests {
         ui.advance_state_after_tick(now + Duration::from_secs(4));
         assert_eq!(ui.state, UIState::Playing);
         assert_eq!(ui.history.last().unwrap().hash, next);
+    }
+
+    #[test]
+    fn watch_mode_ignores_return_from_detached_checkout() {
+        let test_repo = TestRepo::new();
+        let ancestor =
+            test_repo.commit_file("src/lib.rs", "fn old() {}\n", "ancestor", 1_700_000_000);
+        test_repo.commit_file("src/lib.rs", "fn tip() {}\n", "tip", 1_700_000_060);
+        let branch = test_repo.repo.head().unwrap().name().unwrap().to_string();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        test_repo
+            .repo
+            .set_head_detached(git2::Oid::from_str(&ancestor).unwrap())
+            .unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        test_repo.repo.set_head(&branch).unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(4));
+
+        assert_eq!(ui.state, UIState::Watching);
+        assert!(ui.history.is_empty());
+    }
+
+    #[test]
+    fn watch_mode_replays_commits_rebased_while_detached() {
+        let test_repo = TestRepo::new();
+        let tip = test_repo.commit_file("src/lib.rs", "fn old() {}\n", "tip", 1_700_000_000);
+        let branch = test_repo.repo.head().unwrap().name().unwrap().to_string();
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+
+        test_repo
+            .repo
+            .set_head_detached(git2::Oid::from_str(&tip).unwrap())
+            .unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        let rebased =
+            test_repo.commit_file("src/lib.rs", "fn rebased() {}\n", "rebased", 1_700_000_060);
+        test_repo
+            .repo
+            .reference(
+                &branch,
+                git2::Oid::from_str(&rebased).unwrap(),
+                true,
+                "rebase",
+            )
+            .unwrap();
+        test_repo.repo.set_head(&branch).unwrap();
+        ui.advance_state_after_tick(now + Duration::from_secs(4));
+
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.last().unwrap().hash, rebased);
+    }
+
+    #[test]
+    fn watch_mode_does_not_advance_to_queued_commit_while_paused() {
+        let test_repo = TestRepo::new();
+        test_repo.commit_file("src/lib.rs", "fn old() {}\n", "existing", 1_700_000_000);
+        let repo = GitRepository::open(&test_repo.path).unwrap();
+        let now = Instant::now();
+        let mut ui = watch_ui(&repo, now);
+        test_repo.commit_file("src/lib.rs", "fn first() {}\n", "first", 1_700_000_060);
+        let second =
+            test_repo.commit_file("src/lib.rs", "fn second() {}\n", "second", 1_700_000_120);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+
+        ui.toggle_pause();
+        finish_playback(&mut ui);
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.state, UIState::Playing);
+        assert_eq!(ui.history.len(), 1);
+
+        ui.toggle_pause();
+        ui.advance_state_after_tick(now + Duration::from_secs(2));
+        assert_eq!(ui.history.last().unwrap().hash, second);
     }
 
     #[test]
