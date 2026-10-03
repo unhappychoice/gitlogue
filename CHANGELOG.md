@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-03
+
+### ✨ Features
+
+- feat: return to waiting screen after watch playback finishes ([784f6e5](https://github.com/unhappychoice/gitlogue/commit/784f6e5))
+- feat: add watch mode to replay new commits as they are made ([9cfdddf](https://github.com/unhappychoice/gitlogue/commit/9cfdddf))
+
+### 🐛 Bug Fixes
+
+- fix: respect pause and detached checkouts in watch mode ([3b7f372](https://github.com/unhappychoice/gitlogue/commit/3b7f372))
+- fix: redraw when UI state changes without animation progress ([8a7158b](https://github.com/unhappychoice/gitlogue/commit/8a7158b))
+- fix(ci): fail Homebrew SHA step on HTTP errors ([9a27f93](https://github.com/unhappychoice/gitlogue/commit/9a27f93))
+
+### 📝 Other Changes
+
+- chore: bump version to v0.12.0 ([06a19b7](https://github.com/unhappychoice/gitlogue/commit/06a19b7))
+- refactor: show waiting screen instead of startup HEAD in watch mode ([f89347f](https://github.com/unhappychoice/gitlogue/commit/f89347f))
+- chore(deps): bump rand from 0.10.2 to 0.10.3 ([c2d782c](https://github.com/unhappychoice/gitlogue/commit/c2d782c))
+- chore(deps): bump toml_edit ([76d7e99](https://github.com/unhappychoice/gitlogue/commit/76d7e99))
+- chore(deps): bump toml from 1.1.5+spec-1.1.0 to 1.1.6+spec-1.1.0 ([0b34718](https://github.com/unhappychoice/gitlogue/commit/0b34718))
+- chore(deps): bump dirs from 6.0.0 to 7.0.0 ([bdcffbc](https://github.com/unhappychoice/gitlogue/commit/bdcffbc))
+- chore(deps): bump toml from 1.1.4+spec-1.1.0 to 1.1.5+spec-1.1.0 ([59dc7b3](https://github.com/unhappychoice/gitlogue/commit/59dc7b3))
+- chore(deps): bump chrono-english from 0.2.0 to 0.2.1 ([971f97b](https://github.com/unhappychoice/gitlogue/commit/971f97b))
+- chore: update flake.nix hashes for v0.11.0 ([4868df2](https://github.com/unhappychoice/gitlogue/commit/4868df2))
+
+
 ## [0.11.0] - 2026-08-30
 
 ### ✨ Features
@@ -17,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📝 Other Changes
 
-- chore: bump version to v0.11.0 ([4896e19](https://github.com/unhappychoice/gitlogue/commit/4896e19))
+- chore: bump version to v0.11.0 ([c463184](https://github.com/unhappychoice/gitlogue/commit/c463184))
 - chore(nix): update nixpkgs to fix crate downloads (#234) ([e20bba9](https://github.com/unhappychoice/gitlogue/commit/e20bba9))
 - docs: refresh supported language lists ([b2991eb](https://github.com/unhappychoice/gitlogue/commit/b2991eb))
 - chore(deps): bump chrono-english from 0.1.8 to 0.2.0 (#233) ([4c2a482](https://github.com/unhappychoice/gitlogue/commit/4c2a482))
