@@ -423,6 +423,13 @@ fn apply_commit_filters(repo: &mut GitRepository, args: &Args) -> Result<()> {
     Ok(())
 }
 
+fn initialize_ignore_patterns(patterns: &[String]) -> Result<()> {
+    match git::init_ignore_patterns(patterns) {
+        Err(error) if error.to_string() == "User patterns already initialized" => Ok(()),
+        result => result,
+    }
+}
+
 fn prepare_commit_playback(
     repo: &mut GitRepository,
     args: &Args,
@@ -437,7 +444,7 @@ fn prepare_commit_playback(
         args.ignore_file.as_deref(),
         &args.ignore,
     )?;
-    git::init_ignore_patterns(&patterns).ok();
+    initialize_ignore_patterns(&patterns)?;
     let order = resolve_order(args.order, &config.order, is_range_mode, is_filtered);
     let runtime = resolve_runtime_options(
         args.speed,
@@ -476,7 +483,7 @@ fn prepare_diff_playback(
         DiffMode::Staged
     };
     let patterns = collect_ignore_patterns(&config.ignore_patterns, None, options.ignore)?;
-    git::init_ignore_patterns(&patterns).ok();
+    initialize_ignore_patterns(&patterns)?;
     let metadata = repo.get_working_tree_diff(mode)?;
     if metadata.changes.is_empty() {
         return Ok(None);
@@ -503,7 +510,7 @@ fn run_watch_mode(repo: &GitRepository, args: &Args, config: &Config) -> Result<
         args.ignore_file.as_deref(),
         &args.ignore,
     )?;
-    git::init_ignore_patterns(&patterns).ok();
+    initialize_ignore_patterns(&patterns)?;
     let RuntimeOptions {
         speed,
         theme,

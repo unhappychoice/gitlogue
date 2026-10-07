@@ -240,6 +240,41 @@ fn diff_subcommand_reports_no_changes_for_clean_repo() -> Result<()> {
 }
 
 #[test]
+fn invalid_ignore_pattern_is_reported_before_starting_playback() -> Result<()> {
+    let home = TempHome::new()?;
+    let repo = TestRepo::new()?;
+    repo.commit_file("src/lib.rs", "fn clean() {}\n", "initial", 1)?;
+    let path = repo_path(&repo).to_str().unwrap();
+
+    for mode_args in [
+        vec!["diff", "--ignore", "[invalid"],
+        vec!["--ignore", "[invalid", "--commit", "HEAD"],
+        vec!["--ignore", "[invalid", "--watch"],
+    ] {
+        let mut command = command_with_home(&home);
+        command
+            .args(["--path", path])
+            .args(mode_args.iter().copied());
+        let output = run_command(&mut command)?;
+
+        assert!(
+            !output.status.success(),
+            "args {mode_args:?} unexpectedly succeeded; stdout: {}; stderr: {}",
+            stdout(&output),
+            stderr(&output)
+        );
+        assert_eq!(stdout(&output), "");
+        assert!(
+            stderr(&output).contains("Invalid glob pattern: [invalid"),
+            "unexpected stderr for args {mode_args:?}: {}",
+            stderr(&output)
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn diff_subcommand_with_staged_changes_fails_only_after_ui_startup_without_tty() -> Result<()> {
     let repo = TestRepo::new()?;
     repo.commit_file("src/lib.rs", "fn clean() {}\n", "initial", 1)?;
