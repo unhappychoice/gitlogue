@@ -565,7 +565,13 @@ impl<'a> UI<'a> {
     fn handle_event(&mut self, event: Event) {
         self.force_redraw = true;
         if let Event::Key(key) = event {
-            self.handle_key_event(key);
+            // On Windows, crossterm emits both a Press and a Release event for a single
+            // physical keypress ("Add key release event for windows", crossterm 0.26.0+).
+            // Acting on both makes every key fire twice, so e.g. Space pauses and then
+            // immediately resumes. Only act on the initial press.
+            if key.kind == event::KeyEventKind::Press {
+                self.handle_key_event(key);
+            }
         }
     }
 
@@ -1069,6 +1075,14 @@ mod tests {
         event::KeyEvent::new(code, KeyModifiers::NONE)
     }
 
+    fn press_event(code: KeyCode) -> event::KeyEvent {
+        event::KeyEvent::new_with_kind(code, KeyModifiers::NONE, event::KeyEventKind::Press)
+    }
+
+    fn release_event(code: KeyCode) -> event::KeyEvent {
+        event::KeyEvent::new_with_kind(code, KeyModifiers::NONE, event::KeyEventKind::Release)
+    }
+
     fn quit_event() -> io::Result<Event> {
         Ok(Event::Key(key_event(KeyCode::Char('q'))))
     }
@@ -1264,6 +1278,47 @@ mod tests {
         let rendered = buffer_text(terminal.backend().buffer());
         assert!(rendered.contains("Menu"));
         assert!(rendered.contains("Exit"));
+    }
+
+    /// Regression test for key release events on Windows.
+    ///
+    /// crossterm reports both a Press and a Release event for a single physical
+    /// keypress on Windows, so acting on every event makes one tap fire an action
+    /// twice. A single Space would pause and then instantly resume.
+    #[test]
+    fn key_release_events_must_not_trigger_a_second_action() {
+        let mut ui = test_ui();
+        assert_eq!(ui.playback_state, PlaybackState::Playing);
+
+        ui.handle_event(Event::Key(press_event(KeyCode::Char(' '))));
+        assert_eq!(ui.playback_state, PlaybackState::Paused);
+
+        // The release of the same physical keypress must be ignored, otherwise
+        // playback resumes immediately.
+        ui.handle_event(Event::Key(release_event(KeyCode::Char(' '))));
+        assert_eq!(ui.playback_state, PlaybackState::Paused);
+    }
+
+    #[test]
+    fn key_release_events_must_not_quit_the_app() {
+        let mut ui = test_ui();
+
+        ui.handle_event(Event::Key(release_event(KeyCode::Char('q'))));
+        assert_ne!(ui.state, UIState::Finished);
+    }
+
+    #[test]
+    fn key_release_events_must_not_navigate_history_twice() {
+        let mut ui = test_ui();
+        ui.load_commit(metadata("1111111", "first"));
+        ui.load_commit(metadata("2222222", "second"));
+        ui.load_commit(metadata("3333333", "third"));
+
+        ui.handle_event(Event::Key(press_event(KeyCode::Char('p'))));
+        assert_eq!(ui.history_index, Some(1));
+
+        ui.handle_event(Event::Key(release_event(KeyCode::Char('p'))));
+        assert_eq!(ui.history_index, Some(1));
     }
 
     #[test]
