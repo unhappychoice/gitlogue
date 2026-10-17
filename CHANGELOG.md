@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-17
+
+### 🐛 Bug Fixes
+
+- fix(ui): ignore key release events so keys do not fire twice on Windows ([ec63a6c](https://github.com/unhappychoice/gitlogue/commit/ec63a6c))
+
+### 📝 Other Changes
+
+- chore: bump version to v0.12.1 ([63630fd](https://github.com/unhappychoice/gitlogue/commit/63630fd))
+- test(ui): replace no-op step regression test with history navigation check ([3b23f10](https://github.com/unhappychoice/gitlogue/commit/3b23f10))
+- chore(deps): bump tree-sitter-erlang from 0.20.0 to 0.21.0 ([10911eb](https://github.com/unhappychoice/gitlogue/commit/10911eb))
+- chore(deps): bump tree-sitter-php from 0.24.2 to 0.25.1 ([3565f10](https://github.com/unhappychoice/gitlogue/commit/3565f10))
+- chore(deps): bump tree-sitter-swift from 0.7.3 to 0.7.4 ([b89c173](https://github.com/unhappychoice/gitlogue/commit/b89c173))
+- chore(deps): bump tree-sitter-haskell from 0.23.1 to 0.24.1 ([10d8fb0](https://github.com/unhappychoice/gitlogue/commit/10d8fb0))
+- chore: update flake.nix hashes for v0.12.0 ([1ad3d9b](https://github.com/unhappychoice/gitlogue/commit/1ad3d9b))
+
+
 ## [0.12.0] - 2026-10-03
 
 ### ✨ Features
@@ -20,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📝 Other Changes
 
-- chore: bump version to v0.12.0 ([06a19b7](https://github.com/unhappychoice/gitlogue/commit/06a19b7))
+- chore: bump version to v0.12.0 ([336d5a8](https://github.com/unhappychoice/gitlogue/commit/336d5a8))
 - refactor: show waiting screen instead of startup HEAD in watch mode ([f89347f](https://github.com/unhappychoice/gitlogue/commit/f89347f))
 - chore(deps): bump rand from 0.10.2 to 0.10.3 ([c2d782c](https://github.com/unhappychoice/gitlogue/commit/c2d782c))
 - chore(deps): bump toml_edit ([76d7e99](https://github.com/unhappychoice/gitlogue/commit/76d7e99))
