@@ -359,7 +359,7 @@ impl LanguageKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tree_sitter::Parser;
+    use tree_sitter::{Parser, Query};
 
     const SUPPORTED_LANGUAGES: [(&str, bool); 34] = [
         ("astro", true),
@@ -451,6 +451,19 @@ mod tests {
                 assert!(!support.highlight_query.is_empty(), "{name}");
                 assert_eq!(support.injection_query.is_some(), *has_injection, "{name}");
             });
+    }
+
+    #[test]
+    fn every_supported_language_query_compiles() {
+        SUPPORTED_LANGUAGES.iter().for_each(|(name, _)| {
+            let support = get_language_by_name(name).expect("language should resolve");
+            let highlight = Query::new(&support.language, support.highlight_query);
+            assert!(highlight.is_ok(), "{name}: {:?}", highlight.err());
+            support.injection_query.iter().for_each(|source| {
+                let injection = Query::new(&support.language, source);
+                assert!(injection.is_ok(), "{name}: {:?}", injection.err());
+            });
+        });
     }
 
     #[test]
