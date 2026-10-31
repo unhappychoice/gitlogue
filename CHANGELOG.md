@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-10-31
+
+### 🐛 Bug Fixes
+
+- fix(swift): capture nil via nil_literal node ([c202bce](https://github.com/unhappychoice/gitlogue/commit/c202bce))
+- fix(dart): use the highlight query bundled with tree-sitter-dart ([be65dd1](https://github.com/unhappychoice/gitlogue/commit/be65dd1))
+
+### 📝 Other Changes
+
+- chore: bump version to v0.12.2 ([4e57e27](https://github.com/unhappychoice/gitlogue/commit/4e57e27))
+- test(syntax): assert every highlight and injection query compiles ([84ea30f](https://github.com/unhappychoice/gitlogue/commit/84ea30f))
+- chore(deps): bump tree-sitter-dart from 0.2.0 to 0.3.0 ([edf5913](https://github.com/unhappychoice/gitlogue/commit/edf5913))
+- chore(deps): bump tree-sitter-md from 0.5.3 to 0.5.4 ([a02ffd1](https://github.com/unhappychoice/gitlogue/commit/a02ffd1))
+- chore(deps): bump tree-sitter-scala from 0.26.2 to 0.26.3 ([b0c640a](https://github.com/unhappychoice/gitlogue/commit/b0c640a))
+- chore: update flake.nix hashes for v0.12.1 ([94123e9](https://github.com/unhappychoice/gitlogue/commit/94123e9))
+
+
 ## [0.12.1] - 2026-10-17
 
 ### 🐛 Bug Fixes
@@ -13,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📝 Other Changes
 
-- chore: bump version to v0.12.1 ([63630fd](https://github.com/unhappychoice/gitlogue/commit/63630fd))
+- chore: bump version to v0.12.1 ([9613abb](https://github.com/unhappychoice/gitlogue/commit/9613abb))
 - test(ui): replace no-op step regression test with history navigation check ([3b23f10](https://github.com/unhappychoice/gitlogue/commit/3b23f10))
 - chore(deps): bump tree-sitter-erlang from 0.20.0 to 0.21.0 ([10911eb](https://github.com/unhappychoice/gitlogue/commit/10911eb))
 - chore(deps): bump tree-sitter-php from 0.24.2 to 0.25.1 ([3565f10](https://github.com/unhappychoice/gitlogue/commit/3565f10))
